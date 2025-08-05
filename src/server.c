@@ -33,8 +33,8 @@ void parse_headers(hash_map *map, string_pool *pool, char *data) {
   int data_len = len(data);
   int value_len = data_len - colon - 1;
 
-  char *key = string_pool_alloc(pool, data, colon);
-  char *value = string_pool_alloc(pool, data + colon + 1, value_len);
+  char *key = string_pool_nalloc(pool, data, colon);
+  char *value = string_pool_nalloc(pool, data + colon + 1, value_len);
 
   if ((long)key < NULL)
     writelog("Error en memoria");
@@ -54,8 +54,8 @@ int read_incoming(int fd, string_pool *pool, hash_map *map) {
   while (readline_stream(&reader, 1024) > 0) {
     line = &reader.buffer[pos];
     if (pos == 0) {
-      char *key = string_pool_alloc(pool, "REQUEST", 7);
-      char *value = string_pool_alloc(pool, line, len(line));
+      char *key = string_pool_alloc(pool, "REQUEST\0");
+      char *value = string_pool_alloc(pool, line);
       hashmap_put(map, key, value);
     } else {
       parse_headers(map, pool, line);
@@ -76,7 +76,6 @@ void write_response(int client, hash_map *map) {
 
   int fd = open("templates/index.html", O_RDONLY);
 
-  //  int bytes_readed =
   read(fd, msg, 146);
 
   writelog("El servicio envía: ");
@@ -94,6 +93,9 @@ void server() {
 
   int port = 5050;
   writelog("Iniciando el servicio\n");
+
+  string_pool_alloc(&builder, "Iniciando servicio");
+  string_pool_relloc(&builder, 2048);
 
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
@@ -119,6 +121,7 @@ void server() {
 
     syscall3(SYS_CLOSE, client, 0, 0);
 
+    string_pool_reset(&builder);
     writelog("\n");
   }
 }

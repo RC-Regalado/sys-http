@@ -44,25 +44,95 @@ void substr(const char *s1, char *buffer, int pos, int size) {
 int string_pool_init(string_pool *pool, long capacity) {
   pool->base = sysmap_alloc(capacity);
   if (!pool->base)
-    return -1;
+    return NOMEM;
   pool->capacity = capacity;
   pool->offset = 0;
   return 0;
 }
 
-char *string_pool_alloc(string_pool *pool, const char *src, long len) {
-  if (pool->offset + len + 1 > pool->capacity)
+char *string_pool_alloc(string_pool *pool, const char *src) {
+  long size = len(src);
+  return string_pool_nalloc(pool, src, size);
+}
+
+char *string_pool_nalloc(string_pool *pool, const char *src, long size) {
+  if (pool->offset + size + 1 > pool->capacity)
     return NULL; // no hay espacio
 
   char *dest = &pool->base[pool->offset];
-  for (long i = 0; i < len; i++) {
+  for (long i = 0; i < size; i++) {
     dest[i] = src[i];
   }
-  dest[len] = '\0';
-  pool->offset += len + 1;
+  dest[size] = '\0';
+  pool->offset += size + 1;
+  return dest;
+}
+
+int string_pool_relloc(string_pool *pool, long new_capacity) {
+  if (!pool->base)
+    return NOMEM;
+
+  if (pool->capacity > new_capacity)
+    return SIZEERR;
+
+  char *old_base = pool->base;
+
+  pool->base = sysmap_alloc(new_capacity);
+
+  if (!pool->base)
+    return NOMEM;
+
+  for (long i = 0; i < pool->offset; i++) {
+    pool->base[i] = old_base[i];
+  }
+
+  pool->capacity = new_capacity;
+  sysmap_free(old_base);
+  return 0;
+}
+
+char *string_pool_append(string_pool *pool, const char *src,
+                         unsigned char realloc) {
+  long size = len(src);
+
+  if (pool->offset + size > pool->capacity) {
+    if (!realloc)
+      return NULL; // no hay espacio
+
+    if (string_pool_relloc(pool, pool->capacity * 2) != 0)
+      return NULL;
+  }
+
+  long index = pool->offset == 0 ? 0 : pool->offset - 1;
+
+  char *dest = &pool->base[index];
+
+  for (long i = 0; i < size; i++) {
+    dest[i] = src[i];
+  }
+  dest[size] = '\0';
+  pool->offset += size + 1;
+
+  if (index > 0) {
+    // Encontrar 0 o el último corte del pool
+    while (pool->base[index] != '\0' && index > 0) {
+      index--;
+    }
+    return &pool->base[index];
+  }
+
   return dest;
 }
 
 void string_pool_reset(string_pool *pool) { pool->offset = 0; }
 
 void string_pool_destroy(string_pool *pool) { sysmap_free(pool->base); }
+
+void string_pool_mark(string_pool *pool) { pool->mark = pool->offset; }
+
+void string_pool_reset_to_mark(string_pool *pool) {
+  pool->offset = pool->mark;
+
+  if (pool->offset > 0)
+    pool->base[pool->offset - 1] = '\0';
+}
