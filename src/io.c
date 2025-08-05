@@ -64,3 +64,7 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
     reader->write_pos += bytes_read;
   }
 }
+
+int open(const char *filename, int flags) {
+  return syscall3(SYS_OPEN, (long)filename, flags, 0);
+}

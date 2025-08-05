@@ -2,8 +2,9 @@
 #define __IO_H
 
 // SYSCALL
-#define SYS_WRITE 1
 #define SYS_READ 0
+#define SYS_WRITE 1
+#define SYS_OPEN 2
 #define SYS_CLOSE 3
 
 // OUTPUTS
@@ -14,6 +15,11 @@
 
 // SIZES
 #define LINE_BUF_SIZE 1024
+
+// FLAGS
+#define O_RDONLY 00
+#define O_WRONLY 01
+#define O_RDWR 02
 
 typedef struct {
   int fd;                     // File descriptor (socket o archivo)
@@ -27,4 +33,6 @@ void writelog(const char *msg);
 
 int readline_stream(line_reader *reader, unsigned short chunk_len);
 unsigned int read(long instream, char *buffer, unsigned short len);
+
+int open(const char *filename, int flags);
 #endif // IO_H_

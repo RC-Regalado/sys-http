@@ -1,7 +1,6 @@
-FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/server.o
+FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o
 INCLUDES = -I./src
 FLAGS = -g -ffreestanding -falign-jumps -falign-functions -falign-labels -falign-loops -fstrength-reduce -fomit-frame-pointer -finline-functions -Wno-unused-function -fno-builtin -Werror -Wno-unused-label -Wno-cpp -Wno-unused-parameter -nostdlib -nostartfiles -nodefaultlibs -Wall -O0 -Iinc -fno-stack-protector
-
 
 all: ./bin/server
 
@@ -9,11 +8,17 @@ all: ./bin/server
 	gcc $(FLAGS) -o $@ $(FILES)
 #	gcc $(FLAGS) $(FILES) -o ./bin/server
 
+./build/mmap.o: ./src/mmap.s
+	as -o ./build/mmap.o ./src/mmap.s
+
 ./build/main.o: ./src/main.s
 	as -o ./build/main.o ./src/main.s
 
 ./build/server.o: ./src/server.c
 	gcc $(INCLUDES) $(FLAGS) -c ./src/server.c -o ./build/server.o
+
+./build/memory.o: ./src/memory.c
+	gcc $(INCLUDES) $(FLAGS) -c ./src/memory.c -o ./build/memory.o
 
 ./build/io.o: ./src/io.c
 	gcc $(INCLUDES) $(FLAGS) -c ./src/io.c -o ./build/io.o

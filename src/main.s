@@ -2,9 +2,6 @@
 .global _start
 .type _start, @function
 _start:
-//    xor %rbp, %rbp
-//    and $-16, %rsp
-//    sub $8, %rsp
     call server
 
     mov $60, %rax   # syscall: exit
