@@ -8,6 +8,24 @@ unsigned int len(const char *str) {
   return i;
 }
 
+unsigned int nlen(long number) {
+  if (number == 0)
+    return 1;
+  int size = 0;
+  long tmp = number;
+
+  while (tmp != 0) {
+    tmp /= 10;
+    size++;
+  }
+
+  // Agregamos espacio para el signo
+  if (number < 0)
+    size++;
+
+  return size;
+}
+
 int strcmp(const char *s1, const char *s2) {
   while (*s1 && (*s1 == *s2)) {
     s1++;
@@ -39,6 +57,33 @@ void substr(const char *s1, char *buffer, int pos, int size) {
     buffer[i] = s1[pos + i];
     i++;
   }
+}
+
+void tostr(char *buffer, int number, unsigned int size) {
+  if (buffer == NULL)
+    return;
+
+  int pos = -1;
+  long tmp;
+  int top = size - 1; // Una posicion es para \0
+
+  if (number < 0) {
+    buffer[0] = '-';
+    number = -number;
+    pos++;
+  }
+
+  while (number != 0 && top != pos) {
+    tmp = number % 10;
+    number /= 10;
+
+    char c = tmp + 48;
+
+    buffer[top] = c;
+    top--;
+  }
+
+  buffer[size] = '\0';
 }
 
 int string_pool_init(string_pool *pool, long capacity) {

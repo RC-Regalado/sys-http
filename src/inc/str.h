@@ -13,9 +13,12 @@ typedef struct {
 } string_pool;
 
 unsigned int len(const char *string);
+unsigned int nlen(long number);
+
 int strcmp(const char *s1, const char *s2);
 int index(const char *s1, const char c);
 void substr(const char *s1, char *buffer, int pos, int size);
+void tostr(char *buffer, int number, unsigned int size);
 
 // Funciones para uso optimizado de memoria
 int string_pool_init(string_pool *pool, long capacity);
