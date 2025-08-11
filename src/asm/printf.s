@@ -1,5 +1,6 @@
 .section .data
 buffer: .space 256    # buffer de salida temporal
+# Esta implementacion no se usa (de momento) debido a la falta de va_args 
 
 .section .text
 .global logf

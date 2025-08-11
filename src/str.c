@@ -11,18 +11,16 @@ unsigned int len(const char *str) {
 unsigned int nlen(long number) {
   if (number == 0)
     return 1;
-  int size = 0;
+  unsigned int size = 0;
   long tmp = number;
-
-  while (tmp != 0) {
+  if (tmp < 0) {
+    size++;
+    tmp = -tmp;
+  }
+  while (tmp) {
     tmp /= 10;
     size++;
   }
-
-  // Agregamos espacio para el signo
-  if (number < 0)
-    size++;
-
   return size;
 }
 
@@ -51,39 +49,65 @@ int index(const char *s1, const char c) {
   return i;
 }
 
+int last_index_of(const char *s1, char c) {
+  int l = len(s1) - 1;
+
+  if (l <= 0)
+    return -1;
+
+  while (s1[l] != c && l > -1)
+    l--;
+
+  if (l == -1)
+    return -1;
+
+  return l;
+}
+
 void substr(const char *s1, char *buffer, int pos, int size) {
   int i = 0;
-  while (i < size && i < len(s1)) {
+  unsigned int l = len(s1);
+
+  while (i < size && i < l) {
     buffer[i] = s1[pos + i];
     i++;
   }
 }
 
-void tostr(char *buffer, int number, unsigned int size) {
-  if (buffer == NULL)
+void tostr(char *buffer, long number, unsigned int size) {
+  if (!buffer || size == 0)
     return;
-
-  int pos = -1;
-  long tmp;
-  int top = size - 1; // Una posicion es para \0
-
+  buffer[size - 1] = '\0';     // terminador
+  unsigned int top = size - 2; // escribe desde el final hacia atrás
+  unsigned long tmp;
+  unsigned int start = 0;
   if (number < 0) {
     buffer[0] = '-';
-    number = -number;
-    pos++;
+    start = 1;
+    tmp = (unsigned long)(-number);
+  } else
+    tmp = (unsigned long)number;
+
+  if (tmp == 0) {
+    buffer[start] = '0';
+    buffer[start + 1] = '\0';
+    return;
   }
 
-  while (number != 0 && top != pos) {
-    tmp = number % 10;
-    number /= 10;
-
-    char c = tmp + 48;
-
-    buffer[top] = c;
+  while (tmp && top >= start) {
+    buffer[top] = (char)('0' + (tmp % 10));
+    tmp /= 10;
+    if (top == 0)
+      break;
     top--;
   }
-
-  buffer[size] = '\0';
+  // compacta hacia delante si quedó espacio
+  if (start < top) {
+    unsigned int len = (size - 1) - top;
+    for (unsigned int i = 0; i < len; i++)
+      buffer[start + i] = buffer[top + 1 + i];
+    buffer[start + len] = '\0';
+  }
 }
 
 int string_pool_init(string_pool *pool, long capacity) {
@@ -169,7 +193,10 @@ char *string_pool_append(string_pool *pool, const char *src,
   return dest;
 }
 
-void string_pool_reset(string_pool *pool) { pool->offset = 0; }
+void string_pool_reset(string_pool *pool) {
+  pool->offset = 0;
+  pool->base[pool->offset] = '\0';
+}
 
 void string_pool_destroy(string_pool *pool) { sysmap_free(pool->base); }
 

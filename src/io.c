@@ -1,18 +1,78 @@
+#include <stdarg.h>
+#include <sys/stat.h>
+
 #include "inc/io.h"
 #include "inc/str.h"
 
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);
 
-void writeout(long where, const char *str) {
-  syscall3(SYS_WRITE, where, (long)str, len(str));
+void format(long where, const char *fmt, va_list ap) {
+  char out[LOG_BUF];
+  int w = 0;
+
+  // va_list ap;
+  // va_start(ap, fmt);
+
+  for (const char *p = fmt; *p && w < LOG_BUF - 1; ++p) {
+    if (*p != '%') {
+      out[w++] = *p;
+      continue;
+    }
+
+    // tenemos un %
+    ++p;
+    if (!*p)
+      break;
+
+    if (*p == 's') {
+      const char *s = va_arg(ap, const char *);
+      if (!s)
+        s = "(null)";
+      while (*s && w < LOG_BUF - 1)
+        out[w++] = *s++;
+    } else if (*p == 'd') {
+      long v = va_arg(ap, long);
+      unsigned int L = nlen(v);
+      if (w + (int)L >= LOG_BUF)
+        L = LOG_BUF - 1 - w;
+      char tmp[32];
+      unsigned int need =
+          (L + 1 <= sizeof(tmp)) ? (L + 1) : (unsigned int)sizeof(tmp);
+      tostr(tmp, v, need);
+      for (unsigned int i = 0; tmp[i] && w < LOG_BUF - 1; ++i)
+        out[w++] = tmp[i];
+    } else if (*p == '%') {
+      out[w++] = '%';
+    } else {
+      out[w++] = '%';
+      if (w < LOG_BUF - 1)
+        out[w++] = *p;
+    }
+  }
+  out[w] = '\0';
+
+  syscall3(SYS_WRITE, where, (long)out, w);
+}
+void write(long where, const char *data, int size) {
+  syscall3(SYS_WRITE, where, (long)data, size);
 }
 
-void writelog(const char *str) { writeout(STDOUT, str); }
+void writef(long where, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
 
-unsigned int read(long instream, char *buffer, unsigned short lenght) {
-  syscall3(SYS_READ, instream, (long)buffer, lenght);
+  format(where, fmt, ap);
 
-  return len(buffer);
+  va_end(ap);
+}
+
+void logf(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+
+  format(STDOUT, fmt, ap);
+
+  va_end(ap);
 }
 
 int readline_stream(line_reader *reader, unsigned short chunk_len) {
@@ -65,6 +125,18 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
   }
 }
 
+unsigned int read(long instream, char *buffer, unsigned short lenght) {
+  syscall3(SYS_READ, instream, (long)buffer, lenght);
+
+  return len(buffer);
+}
+
 int open(const char *filename, int flags) {
   return syscall3(SYS_OPEN, (long)filename, flags, 0);
+}
+
+void close(int fd) { syscall3(SYS_CLOSE, fd, 0, 0); }
+
+int stat_file(int fd, struct stat *sb) {
+  return syscall3(SYS_STAT, fd, (long)sb, 0);
 }

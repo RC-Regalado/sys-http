@@ -1,3 +1,5 @@
+#include <sys/stat.h>
+
 #include "inc/hashmap.h"
 #include "inc/io.h"
 #include "inc/memory.h"
@@ -37,7 +39,7 @@ void parse_headers(hash_map *map, string_pool *pool, char *data) {
   char *value = string_pool_nalloc(pool, data + colon + 1, value_len);
 
   if ((long)key < NULL)
-    writelog("Error en memoria");
+    logf("Error en memoria");
 
   substr(data, key, 0, colon);
   substr(data, value, colon + 1, value_len);
@@ -66,68 +68,93 @@ int read_incoming(int fd, string_pool *pool, hash_map *map) {
   return 0;
 }
 
+void get_response() {}
+
 void write_response(int client, hash_map *map) {
-  const char *header = "HTTP/1.1 200 OK\r\nContent-Type: text/html;\r\n";
+  const char *header = "HTTP/1.1 200 OK\r\n";
   string_pool handler;
   string_pool_init(&handler, 1024);
 
-  // Usamos el pool para datos de inicialización
-  char *msg = string_pool_alloc(&handler, "templates/");
+  char *route = string_pool_alloc(&handler, "templates");
   const char *request = hashmap_get(map, "REQUEST");
+
+  struct stat sb;
+
+  if (request == 0) {
+    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    return;
+  }
 
   int space_index1 = index(request, ' ');
   int space_index2 = index(request + space_index1 + 1, ' ');
 
+  if (space_index1 < 0 || space_index2 < 0) {
+    writef(client, "HTTP/1.1 400 Bad Request\r\n\r\n");
+    return;
+  }
   char type[space_index1];
   char path[space_index2 + 1];
 
-  int bytes_reader = 0;
+  int bytes_readed = 0;
   char buffer[256];
-  int content_lenght;
 
-  for (long i = 0; i < space_index1; i++) {
-    type[i] = request[i];
-  }
+  substr(request, type, 0, space_index1);
+  substr(request, path, space_index1 + 1, space_index2);
 
-  writelog(type);
-
-  for (long i = 0; i < space_index2; i++) {
-    path[i] = request[space_index1 + i + 1];
-  }
-
+  type[space_index1] = '\0';
   path[space_index2] = '\0';
+
+  logf("request type(%s) to %s\n", type, path);
 
   if (strcmp(path, "/") == 0)
     string_pool_append(&handler, "index.html", 0);
   else
     string_pool_append(&handler, path, 0);
 
-  int fd = open(msg, O_RDONLY);
+  int fd = open(route, O_RDONLY);
+
+  if (fd < 0) {
+    writef(client, "HTTP/1.1 404 Not Found\r\n\r\n");
+    return;
+  }
+
+  if (stat_file(fd, &sb) == -1) {
+    logf("Ha ocurrido un error al realizar stat en el archivo: %s\n", route);
+    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    return;
+  }
+
+  // Cabecera por cortes
+  writef(client, header);
+
+  int ext_index = last_index_of(route, '.');
+  char *filetype;
+
+  unsigned int l = len(route);
+  int top = l - ext_index - 1;
+
+  substr(route, path, ext_index + 1, top);
+  path[top] = '\0';
+
+  if (strcmp(path, "html") == 0) {
+    filetype = string_pool_alloc(&handler, "text/html");
+  } else if (strcmp(path, "css") == 0) {
+    filetype = string_pool_alloc(&handler, "text/css");
+  }
+
+  writef(client, "Content-Type: %s\r\n", filetype);
+  writef(client, "Content-Length: %d \r\n\r\n", sb.st_size);
 
   string_pool_reset(&handler);
 
-  while ((bytes_reader = read(fd, buffer, 256)) > 0) {
-    msg = string_pool_alloc(&handler, buffer);
-
-    if (bytes_reader < 256 || buffer[bytes_reader] == 0)
+  while ((bytes_readed = read(fd, buffer, 256)) > 0) {
+    write(client, buffer, bytes_readed);
+    if (bytes_readed < 256)
       break;
   }
 
-  writelog("El servicio envía: ");
-  writelog(msg);
-
-  content_lenght = nlen(handler.offset - 1);
-  tostr(buffer, handler.offset - 1, content_lenght);
-
-  // Cabecera por cortes
-  writeout(client, header);
-  writeout(client, "Content-Length:");
-  writeout(client, buffer);
-  writeout(client, "\r\n\r\n");
-
-  writeout(client, msg);
-
-  syscall3(SYS_CLOSE, fd, 0, 0);
+  string_pool_destroy(&handler);
+  close(fd);
 }
 
 void server() {
@@ -140,14 +167,7 @@ void server() {
   int port = 5050;
   int enable = 1;
 
-  int size = nlen(port);
-  char buff[size + 1];
-
-  tostr(buff, port, size);
-
-  writelog("Iniciando el servicio en el puerto ");
-  writelog(buff);
-  writelog("\n");
+  logf("Iniciando el servicio en el puerto %d \n", port);
 
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
@@ -156,14 +176,14 @@ void server() {
   int sockfd = syscall3(SYS_SOCKET, AF_INET, SOCK_STREAM, 0);
 
   if (sockfd < 0) {
-    writelog("Ha ocurrido un error al iniciar el socket.\n");
+    logf("Ha ocurrido un error al iniciar el socket.\n");
     return;
   }
 
   setsockopt(sockfd, (long)&enable, sizeof(int));
 
   if (syscall3(SYS_BIND, sockfd, (long)&addr, sizeof(addr)) < 0) {
-    writelog("El puerto ya está en uso!\n");
+    logf("El puerto ya está en uso!\n");
     return;
   }
   syscall3(SYS_LISTEN, sockfd, 5, 0);
@@ -171,20 +191,19 @@ void server() {
   while (1) {
     int client = syscall3(SYS_ACCEPT, sockfd, 0, 0);
 
-    writelog("Cliente conectado\n");
+    logf("Cliente conectado\n");
 
     read_incoming(client, &builder, &map);
     write_response(client, &map);
 
     for (int i = 0; i < map.pool_index; i++) {
       const char *key = map.pool[i].key;
-      writelog(hashmap_get(&map, key));
-      writelog("\n");
+      logf("%s = %s \n", key, hashmap_get(&map, key));
     }
 
-    syscall3(SYS_CLOSE, client, 0, 0);
+    close(client);
 
     string_pool_reset(&builder);
-    writelog("\n");
+    logf("\n");
   }
 }
