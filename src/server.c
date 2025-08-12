@@ -75,13 +75,14 @@ void write_response(int client, hash_map *map) {
   string_pool handler;
   string_pool_init(&handler, 1024);
 
-  char *route = string_pool_alloc(&handler, "templates");
+  char *route = string_pool_alloc(&handler, "templates/");
   const char *request = hashmap_get(map, "REQUEST");
 
   struct stat sb;
 
   if (request == 0) {
     writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    string_pool_destroy(&handler);
     return;
   }
 
@@ -90,12 +91,13 @@ void write_response(int client, hash_map *map) {
 
   if (space_index1 < 0 || space_index2 < 0) {
     writef(client, "HTTP/1.1 400 Bad Request\r\n\r\n");
+    string_pool_destroy(&handler);
     return;
   }
-  char type[space_index1];
+  char type[space_index1 + 1];
   char path[space_index2 + 1];
 
-  int bytes_readed = 0;
+  int bytes_read = 0;
   char buffer[256];
 
   substr(request, type, 0, space_index1);
@@ -106,51 +108,80 @@ void write_response(int client, hash_map *map) {
 
   logf("request type(%s) to %s\n", type, path);
 
+  if (strcmp(path, "..") == 0) {
+    writef(client, "HTTP/1.1 403 Forbidden\r\n\r\n");
+    string_pool_destroy(&handler);
+    return;
+  }
+
   if (strcmp(path, "/") == 0)
     string_pool_append(&handler, "index.html", 0);
   else
-    string_pool_append(&handler, path, 0);
+    string_pool_append(&handler, path[0] == '/' ? path + 1 : path, 0);
 
   int fd = open(route, O_RDONLY);
 
   if (fd < 0) {
     writef(client, "HTTP/1.1 404 Not Found\r\n\r\n");
+    string_pool_destroy(&handler);
     return;
   }
 
   if (stat_file(fd, &sb) == -1) {
     logf("Ha ocurrido un error al realizar stat en el archivo: %s\n", route);
     writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    string_pool_destroy(&handler);
+    close(fd);
     return;
   }
 
-  // Cabecera por cortes
   writef(client, header);
 
-  int ext_index = last_index_of(route, '.');
-  char *filetype;
+  int dot = last_index_of(route, '.');
+  char *filetype = "application/octet-stream";
 
-  unsigned int l = len(route);
-  int top = l - ext_index - 1;
+  if (dot > -1) {
+    unsigned int l = len(route);
+    int top = l - dot - 1;
 
-  substr(route, path, ext_index + 1, top);
-  path[top] = '\0';
+    substr(route, path, dot + 1, top);
+    path[top] = '\0';
 
-  if (strcmp(path, "html") == 0) {
-    filetype = string_pool_alloc(&handler, "text/html");
-  } else if (strcmp(path, "css") == 0) {
-    filetype = string_pool_alloc(&handler, "text/css");
+    if (strcmp(path, "html") == 0) {
+      filetype = "text/html";
+    } else if (strcmp(path, "css") == 0) {
+      filetype = "text/css";
+    } else if (strcmp(path, "js") == 0) {
+      filetype = "application/javascript";
+    } else if (strcmp(path, "png") == 0) {
+      filetype = "image/png";
+    } else if (strcmp(path, "jpg") == 0 || strcmp(path, "jpeg") == 0) {
+      filetype = "image/jpeg";
+    }
   }
 
   writef(client, "Content-Type: %s\r\n", filetype);
-  writef(client, "Content-Length: %d \r\n\r\n", sb.st_size);
+  writef(client, "Content-Length: %ld\r\n", sb.st_size);
+  writef(client, "Connection: close\r\n");
+  write(client, "\r\n", 2);
 
   string_pool_reset(&handler);
 
-  while ((bytes_readed = read(fd, buffer, 256)) > 0) {
-    write(client, buffer, bytes_readed);
-    if (bytes_readed < 256)
+  while ((bytes_read = read(fd, buffer, 256)) > 0) {
+    int off = 0;
+    while (off < bytes_read) {
+      int wn = write(client, buffer + off, bytes_read - off);
+      if (wn > 0) {
+        off += wn;
+        continue;
+      }
+      if (wn == 0) {
+        break;
+      }
+
+      off = bytes_read;
       break;
+    }
   }
 
   string_pool_destroy(&handler);

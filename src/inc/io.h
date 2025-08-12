@@ -31,7 +31,7 @@ typedef struct {
   int write_pos;              // Fin de datos válidos
 } line_reader;
 
-void write(long where, const char *data, int size);
+long write(long where, const char *data, int size);
 void writef(long where, const char *fmt, ...);
 void logf(const char *fmt, ...);
 

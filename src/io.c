@@ -30,8 +30,20 @@ void format(long where, const char *fmt, va_list ap) {
         s = "(null)";
       while (*s && w < LOG_BUF - 1)
         out[w++] = *s++;
-    } else if (*p == 'd') {
+    } else if (*p == 'l' && *(p + 1) != 0 && *(p + 1) == 'd') {
+      ++p;
       long v = va_arg(ap, long);
+      unsigned int L = nlen(v);
+      if (w + (int)L >= LOG_BUF)
+        L = LOG_BUF - 1 - w;
+      char tmp[32];
+      unsigned int need =
+          (L + 1 <= sizeof(tmp)) ? (L + 1) : (unsigned int)sizeof(tmp);
+      tostr(tmp, v, need);
+      for (unsigned int i = 0; tmp[i] && w < LOG_BUF - 1; ++i)
+        out[w++] = tmp[i];
+    } else if (*p == 'd') {
+      long v = va_arg(ap, int);
       unsigned int L = nlen(v);
       if (w + (int)L >= LOG_BUF)
         L = LOG_BUF - 1 - w;
@@ -53,8 +65,8 @@ void format(long where, const char *fmt, va_list ap) {
 
   syscall3(SYS_WRITE, where, (long)out, w);
 }
-void write(long where, const char *data, int size) {
-  syscall3(SYS_WRITE, where, (long)data, size);
+long write(long where, const char *data, int size) {
+  return syscall3(SYS_WRITE, where, (long)data, size);
 }
 
 void writef(long where, const char *fmt, ...) {
@@ -126,9 +138,7 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
 }
 
 unsigned int read(long instream, char *buffer, unsigned short lenght) {
-  syscall3(SYS_READ, instream, (long)buffer, lenght);
-
-  return len(buffer);
+  return syscall3(SYS_READ, instream, (long)buffer, lenght);
 }
 
 int open(const char *filename, int flags) {
