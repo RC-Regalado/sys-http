@@ -8,11 +8,14 @@ all: ./bin/server
 	gcc $(FLAGS) -o $@ $(FILES)
 #	gcc $(FLAGS) $(FILES) -o ./bin/server
 
-./build/mmap.o: ./src/mmap.s
-	as -o ./build/mmap.o ./src/mmap.s
+./build/mmap.o: ./src/asm/mmap.s
+	as -o ./build/mmap.o ./src/asm/mmap.s
 
-./build/main.o: ./src/main.s
-	as -o ./build/main.o ./src/main.s
+./build/main.o: ./src/asm/main.s
+	as -o ./build/main.o ./src/asm/main.s
+
+./build/printf.o: ./src/asm/printf.s
+	as -o ./build/printf.o ./src/asm/printf.s
 
 ./build/server.o: ./src/server.c
 	gcc $(INCLUDES) $(FLAGS) -c ./src/server.c -o ./build/server.o

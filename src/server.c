@@ -1,3 +1,5 @@
+#include <sys/stat.h>
+
 #include "inc/hashmap.h"
 #include "inc/io.h"
 #include "inc/memory.h"
@@ -13,7 +15,7 @@
 
 extern void _start();
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);
-extern void *sysmap(long size);
+extern long setsockopt(long fd, long optval, long optlen);
 
 struct sockaddr_in {
   unsigned short sin_family;
@@ -37,7 +39,7 @@ void parse_headers(hash_map *map, string_pool *pool, char *data) {
   char *value = string_pool_nalloc(pool, data + colon + 1, value_len);
 
   if ((long)key < NULL)
-    writelog("Error en memoria");
+    logf("Error en memoria");
 
   substr(data, key, 0, colon);
   substr(data, value, colon + 1, value_len);
@@ -66,62 +68,173 @@ int read_incoming(int fd, string_pool *pool, hash_map *map) {
   return 0;
 }
 
+void get_response() {}
+
 void write_response(int client, hash_map *map) {
-  writelog(hashmap_get(map, "REQUEST"));
+  const char *header = "HTTP/1.1 200 OK\r\n";
+  string_pool handler;
+  string_pool_init(&handler, 1024);
 
-  const char *header = "HTTP/1.1 200 OK\r\nContent-Length: "
-                       "146\r\nContent-Type: text/html; \r\n\r\n";
+  char *route = string_pool_alloc(&handler, "templates/");
+  const char *request = hashmap_get(map, "REQUEST");
 
-  char msg[146];
+  struct stat sb;
 
-  int fd = open("templates/index.html", O_RDONLY);
+  if (request == 0) {
+    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    string_pool_destroy(&handler);
+    return;
+  }
 
-  read(fd, msg, 146);
+  int space_index1 = index(request, ' ');
+  int space_index2 = index(request + space_index1 + 1, ' ');
 
-  writelog("El servicio envía: ");
-  writelog(msg);
+  if (space_index1 < 0 || space_index2 < 0) {
+    writef(client, "HTTP/1.1 400 Bad Request\r\n\r\n");
+    string_pool_destroy(&handler);
+    return;
+  }
+  char type[space_index1 + 1];
+  char path[space_index2 + 1];
 
-  writeout(client, header);
-  writeout(client, msg);
+  int bytes_read = 0;
+  char buffer[256];
+
+  substr(request, type, 0, space_index1);
+  substr(request, path, space_index1 + 1, space_index2);
+
+  type[space_index1] = '\0';
+  path[space_index2] = '\0';
+
+  logf("request type(%s) to %s\n", type, path);
+
+  if (strcmp(path, "..") == 0) {
+    writef(client, "HTTP/1.1 403 Forbidden\r\n\r\n");
+    string_pool_destroy(&handler);
+    return;
+  }
+
+  if (strcmp(path, "/") == 0)
+    string_pool_append(&handler, "index.html", 0);
+  else
+    string_pool_append(&handler, path[0] == '/' ? path + 1 : path, 0);
+
+  int fd = open(route, O_RDONLY);
+
+  if (fd < 0) {
+    writef(client, "HTTP/1.1 404 Not Found\r\n\r\n");
+    string_pool_destroy(&handler);
+    return;
+  }
+
+  if (stat_file(fd, &sb) == -1) {
+    logf("Ha ocurrido un error al realizar stat en el archivo: %s\n", route);
+    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    string_pool_destroy(&handler);
+    close(fd);
+    return;
+  }
+
+  writef(client, header);
+
+  int dot = last_index_of(route, '.');
+  char *filetype = "application/octet-stream";
+
+  if (dot > -1) {
+    unsigned int l = len(route);
+    int top = l - dot - 1;
+
+    substr(route, path, dot + 1, top);
+    path[top] = '\0';
+
+    if (strcmp(path, "html") == 0) {
+      filetype = "text/html";
+    } else if (strcmp(path, "css") == 0) {
+      filetype = "text/css";
+    } else if (strcmp(path, "js") == 0) {
+      filetype = "application/javascript";
+    } else if (strcmp(path, "png") == 0) {
+      filetype = "image/png";
+    } else if (strcmp(path, "jpg") == 0 || strcmp(path, "jpeg") == 0) {
+      filetype = "image/jpeg";
+    }
+  }
+
+  writef(client, "Content-Type: %s\r\n", filetype);
+  writef(client, "Content-Length: %ld\r\n", sb.st_size);
+  writef(client, "Connection: close\r\n");
+  write(client, "\r\n", 2);
+
+  string_pool_reset(&handler);
+
+  while ((bytes_read = read(fd, buffer, 256)) > 0) {
+    int off = 0;
+    while (off < bytes_read) {
+      int wn = write(client, buffer + off, bytes_read - off);
+      if (wn > 0) {
+        off += wn;
+        continue;
+      }
+      if (wn == 0) {
+        break;
+      }
+
+      off = bytes_read;
+      break;
+    }
+  }
+
+  string_pool_destroy(&handler);
+  close(fd);
 }
 
 void server() {
+
   struct sockaddr_in addr = {0}; // inicializa todo a 0
   string_pool builder;
   hash_map map = {.pool_index = 0};
   string_pool_init(&builder, 1024);
 
   int port = 5050;
-  writelog("Iniciando el servicio\n");
+  int enable = 1;
 
-  string_pool_alloc(&builder, "Iniciando servicio");
-  string_pool_relloc(&builder, 2048);
+  logf("Iniciando el servicio en el puerto %d \n", port);
 
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
   addr.sin_addr = 0; // INADDR_ANY
 
   int sockfd = syscall3(SYS_SOCKET, AF_INET, SOCK_STREAM, 0);
-  syscall3(SYS_BIND, sockfd, (long)&addr, sizeof(addr));
+
+  if (sockfd < 0) {
+    logf("Ha ocurrido un error al iniciar el socket.\n");
+    return;
+  }
+
+  setsockopt(sockfd, (long)&enable, sizeof(int));
+
+  if (syscall3(SYS_BIND, sockfd, (long)&addr, sizeof(addr)) < 0) {
+    logf("El puerto ya está en uso!\n");
+    return;
+  }
   syscall3(SYS_LISTEN, sockfd, 5, 0);
 
   while (1) {
     int client = syscall3(SYS_ACCEPT, sockfd, 0, 0);
 
-    writelog("Cliente conectado\n");
+    logf("Cliente conectado\n");
 
     read_incoming(client, &builder, &map);
     write_response(client, &map);
 
     for (int i = 0; i < map.pool_index; i++) {
       const char *key = map.pool[i].key;
-      writelog(hashmap_get(&map, key));
-      writelog("\n");
+      logf("%s = %s \n", key, hashmap_get(&map, key));
     }
 
-    syscall3(SYS_CLOSE, client, 0, 0);
+    close(client);
 
     string_pool_reset(&builder);
-    writelog("\n");
+    logf("\n");
   }
 }
