@@ -16,6 +16,7 @@ unsigned int len(const char *string);
 unsigned int nlen(long number);
 
 int strcmp(const char *s1, const char *s2);
+int strncmp(const char *s1, const char *s2, int size);
 int index(const char *s1, const char c);
 int last_index_of(const char *s1, char c);
 

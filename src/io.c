@@ -150,3 +150,18 @@ void close(int fd) { syscall3(SYS_CLOSE, fd, 0, 0); }
 int stat_file(int fd, struct stat *sb) {
   return syscall3(SYS_STAT, fd, (long)sb, 0);
 }
+
+long sendfile(int out_fd, int in_fd, void *off, long count) {
+  long ret;
+  asm volatile("mov $40, %%rax \n" // SYS_sendfile
+               "mov %1,  %%rdi \n" // out_fd
+               "mov %2,  %%rsi \n" // in_fd
+               "mov %3,  %%rdx \n" // offset (off_t*)
+               "mov %4,  %%r10 \n" // count
+               "syscall        \n"
+               "mov %%rax, %0  \n"
+               : "=r"(ret)
+               : "r"((long)out_fd), "r"((long)in_fd), "r"(off), "r"(count)
+               : "rax", "rdi", "rsi", "rdx", "r10", "rcx", "r11", "memory");
+  return ret; // <0 => -errno
+}

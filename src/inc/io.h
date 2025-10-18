@@ -42,4 +42,5 @@ int open(const char *filename, int flags);
 void close(int fd);
 
 int stat_file(int fd, struct stat *sb);
+long sendfile(int out_fd, int in_fd, void *off, long count);
 #endif // IO_H_

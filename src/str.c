@@ -33,6 +33,15 @@ int strcmp(const char *s1, const char *s2) {
   return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }
 
+int strncmp(const char *s1, const char *s2, int size) {
+  while (*s1 && (*s1 == *s2) && size--) {
+    s1++;
+    s2++;
+  }
+
+  return *(const unsigned char *)s1 - *(const unsigned char *)s2;
+}
+
 int index(const char *s1, const char c) {
   int i = 0;
   unsigned int l = len(s1);

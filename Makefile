@@ -1,4 +1,4 @@
-FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o
+FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o ./build/requests.o
 INCLUDES = -I./src
 FLAGS = -g -ffreestanding -falign-jumps -falign-functions -falign-labels -falign-loops -fstrength-reduce -fomit-frame-pointer -finline-functions -Wno-unused-function -fno-builtin -Werror -Wno-unused-label -Wno-cpp -Wno-unused-parameter -nostdlib -nostartfiles -nodefaultlibs -Wall -O0 -Iinc -fno-stack-protector
 
@@ -16,6 +16,9 @@ all: ./bin/server
 
 ./build/printf.o: ./src/asm/printf.s
 	as -o ./build/printf.o ./src/asm/printf.s
+
+./build/requests.o: ./src/requests.c
+	gcc $(INCLUDES) $(FLAGS) -c ./src/requests.c -o ./build/requests.o
 
 ./build/server.o: ./src/server.c
 	gcc $(INCLUDES) $(FLAGS) -c ./src/server.c -o ./build/server.o

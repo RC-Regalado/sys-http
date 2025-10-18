@@ -3,6 +3,7 @@
 #include "inc/hashmap.h"
 #include "inc/io.h"
 #include "inc/memory.h"
+#include "inc/requests.h"
 #include "inc/str.h"
 
 #define SYS_SOCKET 41
@@ -68,20 +69,15 @@ int read_incoming(int fd, string_pool *pool, hash_map *map) {
   return 0;
 }
 
-void get_response() {}
-
 void write_response(int client, hash_map *map) {
-  const char *header = "HTTP/1.1 200 OK\r\n";
   string_pool handler;
   string_pool_init(&handler, 1024);
 
-  char *route = string_pool_alloc(&handler, "templates/");
   const char *request = hashmap_get(map, "REQUEST");
 
-  struct stat sb;
-
   if (request == 0) {
-    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    // writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    write_headers(client, INTERNAL_ERROR);
     string_pool_destroy(&handler);
     return;
   }
@@ -90,15 +86,12 @@ void write_response(int client, hash_map *map) {
   int space_index2 = index(request + space_index1 + 1, ' ');
 
   if (space_index1 < 0 || space_index2 < 0) {
-    writef(client, "HTTP/1.1 400 Bad Request\r\n\r\n");
+    write_headers(client, UNKNOWN);
     string_pool_destroy(&handler);
     return;
   }
   char type[space_index1 + 1];
   char path[space_index2 + 1];
-
-  int bytes_read = 0;
-  char buffer[256];
 
   substr(request, type, 0, space_index1);
   substr(request, path, space_index1 + 1, space_index2);
@@ -109,7 +102,7 @@ void write_response(int client, hash_map *map) {
   logf("request type(%s) to %s\n", type, path);
 
   if (strcmp(path, "..") == 0) {
-    writef(client, "HTTP/1.1 403 Forbidden\r\n\r\n");
+    write_headers(client, FORBIDDEN);
     string_pool_destroy(&handler);
     return;
   }
@@ -119,73 +112,13 @@ void write_response(int client, hash_map *map) {
   else
     string_pool_append(&handler, path[0] == '/' ? path + 1 : path, 0);
 
-  int fd = open(route, O_RDONLY);
-
-  if (fd < 0) {
-    writef(client, "HTTP/1.1 404 Not Found\r\n\r\n");
-    string_pool_destroy(&handler);
-    return;
-  }
-
-  if (stat_file(fd, &sb) == -1) {
-    logf("Ha ocurrido un error al realizar stat en el archivo: %s\n", route);
-    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
-    string_pool_destroy(&handler);
-    close(fd);
-    return;
-  }
-
-  writef(client, header);
-
-  int dot = last_index_of(route, '.');
-  char *filetype = "application/octet-stream";
-
-  if (dot > -1) {
-    unsigned int l = len(route);
-    int top = l - dot - 1;
-
-    substr(route, path, dot + 1, top);
-    path[top] = '\0';
-
-    if (strcmp(path, "html") == 0) {
-      filetype = "text/html";
-    } else if (strcmp(path, "css") == 0) {
-      filetype = "text/css";
-    } else if (strcmp(path, "js") == 0) {
-      filetype = "application/javascript";
-    } else if (strcmp(path, "png") == 0) {
-      filetype = "image/png";
-    } else if (strcmp(path, "jpg") == 0 || strcmp(path, "jpeg") == 0) {
-      filetype = "image/jpeg";
-    }
-  }
-
-  writef(client, "Content-Type: %s\r\n", filetype);
-  writef(client, "Content-Length: %ld\r\n", sb.st_size);
-  writef(client, "Connection: close\r\n");
-  write(client, "\r\n", 2);
-
-  string_pool_reset(&handler);
-
-  while ((bytes_read = read(fd, buffer, 256)) > 0) {
-    int off = 0;
-    while (off < bytes_read) {
-      int wn = write(client, buffer + off, bytes_read - off);
-      if (wn > 0) {
-        off += wn;
-        continue;
-      }
-      if (wn == 0) {
-        break;
-      }
-
-      off = bytes_read;
-      break;
-    }
+  if (strncmp(type, "GET", 3) == 0) {
+    get(client, map, path);
+  } else if (strcmp(type, "POST") == 0) {
+    post(client, map, path);
   }
 
   string_pool_destroy(&handler);
-  close(fd);
 }
 
 void server() {

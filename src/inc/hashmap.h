@@ -1,4 +1,5 @@
 #ifndef __HASHMAP_H
+#define __HASHMAP_H
 #define MAX_BUCKETS 32
 #define MAX_ENTRIES 64
 
