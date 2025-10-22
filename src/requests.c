@@ -98,25 +98,6 @@ void get(int client, hash_map *header, const char *path) {
       break; // nada más que enviar
     break;
   }
-  /*
-   * Se deshabilita para poder usar el sistema de zero-copy de linux
-    while ((bytes_read = read(fd, buffer, 256)) > 0) {
-      int off = 0;
-      while (off < bytes_read) {
-        int wn = write(client, buffer + off, bytes_read - off);
-        if (wn > 0) {
-          off += wn;
-          continue;
-        }
-        if (wn == 0) {
-          break;
-        }
-
-        off = bytes_read;
-        break;
-      }
-    }
-  */
 
   string_pool_destroy(&handler);
   close(fd);

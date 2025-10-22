@@ -1,7 +1,7 @@
 #ifndef __IO_H
 #define __IO_H
+#include <stdarg.h>
 #include <sys/stat.h>
-
 // SYSCALL
 #define SYS_READ 0
 #define SYS_WRITE 1
@@ -30,6 +30,8 @@ typedef struct {
   int read_pos;               // Inicio de lectura
   int write_pos;              // Fin de datos válidos
 } line_reader;
+
+void format(char *out, int *out_size, const char *fmt, va_list ap);
 
 long write(long where, const char *data, int size);
 void writef(long where, const char *fmt, ...);

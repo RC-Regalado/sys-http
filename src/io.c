@@ -6,8 +6,8 @@
 
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);
 
-void format(long where, const char *fmt, va_list ap) {
-  char out[LOG_BUF];
+void format(char *out, int *out_size, const char *fmt, va_list ap) {
+  //  char out[LOG_BUF];
   int w = 0;
 
   // va_list ap;
@@ -63,8 +63,9 @@ void format(long where, const char *fmt, va_list ap) {
   }
   out[w] = '\0';
 
-  syscall3(SYS_WRITE, where, (long)out, w);
+  //  syscall3(SYS_WRITE, where, (long)out, w);
 }
+
 long write(long where, const char *data, int size) {
   return syscall3(SYS_WRITE, where, (long)data, size);
 }
@@ -73,7 +74,10 @@ void writef(long where, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
 
-  format(where, fmt, ap);
+  char out[LOG_BUF];
+  int size;
+  format(out, &size, fmt, ap);
+  syscall3(SYS_WRITE, where, (long)out, size);
 
   va_end(ap);
 }
@@ -82,7 +86,10 @@ void logf(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
 
-  format(STDOUT, fmt, ap);
+  char out[LOG_BUF];
+  int size;
+  format(out, &size, fmt, ap);
+  syscall3(SYS_WRITE, STDOUT, (long)out, size);
 
   va_end(ap);
 }

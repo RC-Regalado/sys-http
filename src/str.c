@@ -1,5 +1,8 @@
 #include "inc/str.h"
+#include "inc/io.h"
 #include "inc/memory.h"
+
+#include <stdarg.h>
 
 unsigned int len(const char *str) {
   int i = 0;
@@ -216,4 +219,21 @@ void string_pool_reset_to_mark(string_pool *pool) {
 
   if (pool->offset > 0)
     pool->base[pool->offset - 1] = '\0';
+}
+
+int string_pool_format(string_pool *pool, const char *fmt, ...) {
+  int res;
+
+  va_list ap;
+  va_start(ap, fmt);
+
+  int size;
+
+  format(pool->base, &size, fmt, ap);
+
+  pool->offset = size;
+
+out:
+  va_end(ap);
+  return res;
 }
