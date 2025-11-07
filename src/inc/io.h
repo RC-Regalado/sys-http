@@ -18,11 +18,17 @@
 // SIZES
 #define LINE_BUF_SIZE 1024
 #define LOG_BUF 1024
+#define WRITE_BUF_SIZE 1024
+#define READ_BUF_SIZE 1024
 
 // FLAGS
 #define O_RDONLY 00
 #define O_WRONLY 01
 #define O_RDWR 02
+
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 04000
+#endif
 
 typedef struct {
   int fd;                     // File descriptor (socket o archivo)
@@ -31,10 +37,10 @@ typedef struct {
   int write_pos;              // Fin de datos válidos
 } line_reader;
 
-void format(char *out, int *out_size, const char *fmt, va_list ap);
+long format(int where, const char *fmt, va_list ap);
 
 long write(long where, const char *data, int size);
-void writef(long where, const char *fmt, ...);
+long writef(long where, const char *fmt, ...);
 void logf(const char *fmt, ...);
 
 int readline_stream(line_reader *reader, unsigned short chunk_len);

@@ -6,8 +6,8 @@
 
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);
 
-void format(char *out, int *out_size, const char *fmt, va_list ap) {
-  //  char out[LOG_BUF];
+long format(int where, const char *fmt, va_list ap) {
+  char out[LOG_BUF];
   int w = 0;
 
   // va_list ap;
@@ -30,6 +30,9 @@ void format(char *out, int *out_size, const char *fmt, va_list ap) {
         s = "(null)";
       while (*s && w < LOG_BUF - 1)
         out[w++] = *s++;
+
+      int i = w;
+      w = i;
     } else if (*p == 'l' && *(p + 1) != 0 && *(p + 1) == 'd') {
       ++p;
       long v = va_arg(ap, long);
@@ -53,6 +56,23 @@ void format(char *out, int *out_size, const char *fmt, va_list ap) {
       tostr(tmp, v, need);
       for (unsigned int i = 0; tmp[i] && w < LOG_BUF - 1; ++i)
         out[w++] = tmp[i];
+    } else if (*p == 'x') {
+      int v = va_arg(ap, int);
+      int tmp, i;
+      char hex[32];
+
+      i = 0;
+
+      while (v != 0 && w < LOG_BUF - 1) {
+        tmp = v % 16;
+
+        hex[i++] = tmp + ((tmp < 10) ? 48 : 55);
+        v = v / 16;
+      }
+
+      while (i > 0)
+        out[w++] = hex[--i];
+
     } else if (*p == '%') {
       out[w++] = '%';
     } else {
@@ -63,33 +83,31 @@ void format(char *out, int *out_size, const char *fmt, va_list ap) {
   }
   out[w] = '\0';
 
-  //  syscall3(SYS_WRITE, where, (long)out, w);
+  return syscall3(SYS_WRITE, where, (long)out, w);
 }
 
 long write(long where, const char *data, int size) {
   return syscall3(SYS_WRITE, where, (long)data, size);
 }
 
-void writef(long where, const char *fmt, ...) {
+long writef(long where, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
 
-  char out[LOG_BUF];
-  int size;
-  format(out, &size, fmt, ap);
-  syscall3(SYS_WRITE, where, (long)out, size);
+  // int size;
+  long result = format(where, fmt, ap);
+  //  syscall3(SYS_WRITE, where, (long)out, size);
 
   va_end(ap);
+
+  return result;
 }
 
 void logf(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
 
-  char out[LOG_BUF];
-  int size;
-  format(out, &size, fmt, ap);
-  syscall3(SYS_WRITE, STDOUT, (long)out, size);
+  format(STDOUT, fmt, ap);
 
   va_end(ap);
 }

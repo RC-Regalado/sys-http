@@ -222,14 +222,14 @@ void string_pool_reset_to_mark(string_pool *pool) {
 }
 
 int string_pool_format(string_pool *pool, const char *fmt, ...) {
-  int res;
+  int res = 0;
 
   va_list ap;
   va_start(ap, fmt);
 
-  int size;
+  int size = pool->offset;
 
-  format(pool->base, &size, fmt, ap);
+  // format(pool->base, &size, fmt, ap);
 
   pool->offset = size;
 

@@ -19,16 +19,32 @@ syscall3:
   syscall
   ret
 
+.type socketopt, @function
+socketopt:
+  mov %rdi, %rdi
+  mov %rsi, %r10
+
+  mov $1, %rsi
+  syscall 
+  ret
+
 .global setsockopt
 .type setsockopt, @function
 setsockopt:
-  mov %rdi, %rdi
-  mov %rsi, %r10
   mov %rdx, %r8
-
   mov $54, %rax
-  mov $1, %rsi
   mov $2, %rdx
 
-  syscall
+  call socketopt
+  ret
+
+.global _getsockopt
+.type _getsockopt, @function
+_getsockopt:
+  mov %rdx, %r8
+  mov $55, %rax
+  mov $4, %rdx
+
+  call socketopt
+
   ret
