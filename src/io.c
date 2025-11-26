@@ -1,8 +1,8 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
-#include "inc/io.h"
-#include "inc/str.h"
+#include "io.h"
+#include "str.h"
 
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);
 

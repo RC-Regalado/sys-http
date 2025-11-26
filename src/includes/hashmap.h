@@ -16,6 +16,10 @@ typedef struct {
 } hash_map;
 
 unsigned long djb2_hash(const char *str);
+
+void hashmap_init(hash_map *map);
+void hashmap_reset(hash_map *map);
+
 void hashmap_put(hash_map *map, const char *key, const char *value);
 const char *hashmap_get(hash_map *map, const char *key);
 

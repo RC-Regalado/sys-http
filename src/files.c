@@ -1,5 +1,5 @@
-#include "inc/files.h"
-#include "inc/io.h"
+#include "files.h"
+#include "io.h"
 #include <errno.h>
 
 // Para llamada a fcntl

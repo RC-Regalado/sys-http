@@ -1,6 +1,6 @@
-#include "inc/str.h"
-#include "inc/io.h"
-#include "inc/memory.h"
+#include "str.h"
+#include "io.h"
+#include "memory.h"
 
 #include <stdarg.h>
 

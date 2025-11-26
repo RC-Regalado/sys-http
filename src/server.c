@@ -1,10 +1,10 @@
 #include <sys/stat.h>
 
-#include "inc/hashmap.h"
-#include "inc/io.h"
-#include "inc/memory.h"
-#include "inc/requests.h"
-#include "inc/str.h"
+#include "hashmap.h"
+#include "io.h"
+#include "memory.h"
+#include "requests.h"
+#include "str.h"
 
 #define SYS_SOCKET 41
 #define SYS_BIND 49

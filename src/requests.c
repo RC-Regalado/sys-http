@@ -1,7 +1,8 @@
-#include "inc/requests.h"
-#include "inc/hashmap.h"
-#include "inc/io.h"
-#include "inc/str.h"
+#include "hashmap.h"
+#include "io.h"
+#include "str.h"
+
+#include "requests.h"
 
 extern long _getsockopt(int fd, void *optval, unsigned int *optlen);
 
