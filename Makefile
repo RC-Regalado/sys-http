@@ -6,6 +6,7 @@ all: ./bin/server
 
 ./bin/server: $(FILES)
 	gcc $(FLAGS) -o $@ $(FILES)
+	cp -r templates/ bin/
 
 build/%.o: src/asm/%.s
 	as -o $@ $<

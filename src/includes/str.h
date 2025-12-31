@@ -5,6 +5,8 @@
 #define NOMEM -1
 #define SIZEERR -2
 
+#define MAX_FORMAT_SIZE 256
+
 typedef struct {
   char *base;    // Memoria asignada por sysmap_alloc()
   long capacity; // Tamaño total (en bytes)
@@ -19,6 +21,8 @@ int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, int size);
 int index(const char *s1, const char c);
 int last_index_of(const char *s1, char c);
+
+int string_n_copy(const char *src, char *buff, int n);
 
 void substr(const char *s1, char *buffer, int pos, int size);
 void tostr(char *buffer, long number, unsigned int size);
@@ -38,4 +42,6 @@ void string_pool_destroy(string_pool *pool);
 
 void string_pool_mark(string_pool *pool);
 void string_pool_reset_to_mark(string_pool *pool);
+
+int string_pool_format(string_pool *pool, const char *fmt, ...);
 #endif // __STR_H

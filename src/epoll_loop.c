@@ -6,6 +6,7 @@
 #include "epoll_loop.h"
 #include "client.h"
 #include "io.h"
+#include "requests.h"
 #include "syscall.h"
 
 #include <sys/epoll.h>
@@ -22,15 +23,16 @@ extern void sys_epoll_ctl(long epfd, long epoll_ctl_add, long sockfd, long ev);
 extern int sys_epoll_wait(long epfd, long events, long max_events);
 
 /** Array estático de clientes */
-static client clients[CLIENT_CAPACITY];
+static client *clients[CLIENT_CAPACITY];
 
 /**
  * @brief Busca un cliente dado su file descriptor
  */
 client *get_client(int fd) {
   for (int i = 0; i < CLIENT_CAPACITY; ++i) {
-    if (clients[i].fd == fd)
-      return &clients[i];
+    client *c = clients[i];
+    if (c != 0x0 && c->fd == fd)
+      return clients[i];
   }
   return NULL;
 }
@@ -40,10 +42,13 @@ client *get_client(int fd) {
  */
 client *new_client(int fd) {
   for (int i = 0; i < CLIENT_CAPACITY; ++i) {
-    if (clients[i].fd < 0) {
-      clients[i].fd = fd;
-      clients[i].want_read = 1;
-      return &clients[i];
+    client *c = clients[i];
+    if (c == 0x0 || c->fd < 0) {
+      if (c == 0x0)
+        c = client_create(fd);
+
+      c->fd = fd;
+      return c;
     }
   }
   return NULL;
@@ -56,9 +61,6 @@ void event_loop(int sockfd) {
   struct epoll_event ev, events[MAX_EVENTS];
   int epfd = sys_epoll_create1();
 
-  for (int i = 0; i < CLIENT_CAPACITY; ++i)
-    client_destroy(&clients[i]);
-
   ev.events = EPOLLIN;
   ev.data.fd = sockfd;
   sys_epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, (long)&ev);
@@ -68,10 +70,11 @@ void event_loop(int sockfd) {
 
     for (int i = 0; i < nfds; ++i) {
       int fd = events[i].data.fd;
+      client *c;
 
-      if (fd == sockfd) {
+      if (fd != sockfd) {
         int client_fd = syscall3(SYS_ACCEPT, sockfd, 0, 0);
-        client *c = new_client(client_fd);
+        c = new_client(client_fd);
 
         if (!c) {
           logf("No hay espacio para nuevos clientes\n");
@@ -85,26 +88,32 @@ void event_loop(int sockfd) {
         logf("Cliente %d aceptado\n", client_fd);
 
       } else {
-        client *c = get_client(fd);
+        c = get_client(fd);
         if (!c) {
           logf("Cliente no encontrado: %d\n", fd);
           continue;
         }
+      }
 
-        if (c->want_read) {
-          int status = read_incoming(c->fd, &c->pool, &c->headers);
-          if (status < 0) {
-            logf("Error leyendo de cliente %d\n", c->fd);
-            client_destroy(c);
-            syscall3(SYS_EPOLL_CTL, epfd, EPOLL_CTL_DEL, c->fd);
-            close(c->fd);
-            continue;
-          }
-          write_response(c->fd, &c->headers);
+      if (c->want_read) {
+        int status = read_incoming(c);
+        if (status < 0) {
+          logf("Error leyendo de cliente %d\n", c->fd);
           client_destroy(c);
           syscall3(SYS_EPOLL_CTL, epfd, EPOLL_CTL_DEL, c->fd);
           close(c->fd);
+          continue;
         }
+      }
+
+      if (c->want_write) {
+        write_response(c);
+      }
+
+      if (c->want_close) {
+        //        write_response(c->fd, &c->headers);
+        syscall3(SYS_EPOLL_CTL, epfd, EPOLL_CTL_DEL, c->fd);
+        client_destroy(c);
       }
     }
   }

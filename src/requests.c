@@ -1,3 +1,4 @@
+#include "client.h"
 #include "hashmap.h"
 #include "io.h"
 #include "str.h"
@@ -5,6 +6,102 @@
 #include "requests.h"
 
 extern long _getsockopt(int fd, void *optval, unsigned int *optlen);
+
+void parse_headers(hash_map *map, string_pool *pool, char *data) {
+  int colon = index(data, ':');
+
+  int data_len = len(data);
+  int value_len = data_len - colon - 1;
+
+  char *key = string_pool_nalloc(pool, data, colon);
+  char *value = string_pool_nalloc(pool, data + colon + 1, value_len);
+
+  if ((void *)key < NULL)
+    logf("Error en memoria");
+
+  substr(data, key, 0, colon);
+  substr(data, value, colon + 1, value_len);
+
+  hashmap_put(map, key, value);
+}
+
+int read_incoming(client *cl) {
+  line_reader reader = {.read_pos = 0, .write_pos = 0};
+  reader.fd = cl->fd;
+  int pos = 0;
+  char *line;
+
+  while (readline_stream(&reader, 1024) > 0) {
+    line = &reader.buffer[pos];
+    if (pos == 0) {
+      char *key = string_pool_alloc(&cl->pool, "REQUEST\0");
+      char *value = string_pool_alloc(&cl->pool, line);
+      hashmap_put(&cl->headers, key, value);
+    } else {
+      parse_headers(&cl->headers, &cl->pool, line);
+    }
+    pos = reader.read_pos;
+  }
+
+  cl->want_write = 1;
+
+  return 0;
+}
+
+void write_response(client *cl) {
+  string_pool handler;
+  string_pool_init(&handler, 1024);
+
+  int client = cl->fd;
+
+  const char *request = hashmap_get(&cl->headers, "REQUEST");
+
+  if (request == 0) {
+    // writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    write_headers(client, INTERNAL_ERROR);
+    string_pool_destroy(&handler);
+    return;
+  }
+
+  int space_index1 = index(request, ' ');
+  int space_index2 = index(request + space_index1 + 1, ' ');
+
+  if (space_index1 < 0 || space_index2 < 0) {
+    write_headers(client, UNKNOWN);
+    string_pool_destroy(&handler);
+    return;
+  }
+  char type[space_index1 + 1];
+  char file[space_index2 + 1];
+
+  substr(request, type, 0, space_index1);
+  substr(request, file, space_index1 + 1, space_index2);
+
+  type[space_index1] = '\0';
+  file[space_index2] = '\0';
+
+  logf("request type(%s) to %s\n", type, file);
+
+  if (strcmp(file, "..") == 0) {
+    write_headers(client, FORBIDDEN);
+    string_pool_destroy(&handler);
+    return;
+  }
+
+  if (strcmp(file, "/") == 0) {
+    string_n_copy("/index.html", cl->path, CLIENT_MAX_PATH);
+  } else {
+    string_n_copy(file[0] == '/' ? file + 1 : file, cl->path, CLIENT_MAX_PATH);
+  }
+
+  if (strncmp(type, "GET", 3) == 0) {
+    get(cl);
+  } else if (strcmp(type, "POST") == 0) {
+    post(client, &cl->headers, cl->path);
+  }
+
+  string_pool_destroy(&handler);
+}
 
 void write_headers(int client, enum request_status status) {
   // El OK sin doble retorno ya que se espera haya mas datos
@@ -59,7 +156,7 @@ void chunk(int *client, int *fd, hash_map *header, const char *path,
     writef(*client, "0\r\n\r\n");
 }
 
-void get(int client, hash_map *header, const char *path) {
+void get(client *cl) {
   string_pool handler;
   string_pool_init(&handler, 1024);
 
@@ -68,8 +165,9 @@ void get(int client, hash_map *header, const char *path) {
   string_pool_mark(&handler);
 
   char *route = string_pool_alloc(&handler, templates_dir);
-  string_pool_append(&handler, path, 1);
+  string_pool_append(&handler, cl->path, 1);
 
+  int client = cl->fd;
   int fd = open(route, O_RDONLY);
 
   struct stat sb;
@@ -77,6 +175,7 @@ void get(int client, hash_map *header, const char *path) {
   if (fd < 0) {
     write_headers(client, NOT_FOUND);
     string_pool_destroy(&handler);
+    cl->want_close = 1;
     return;
   }
 
@@ -84,20 +183,21 @@ void get(int client, hash_map *header, const char *path) {
     logf("Ha ocurrido un error al realizar stat en el archivo: %s\n", route);
     write_headers(client, INTERNAL_ERROR);
     string_pool_destroy(&handler);
+    cl->want_close = 1;
     close(fd);
     return;
   }
 
-  int dot = last_index_of(path, '.');
+  int dot = last_index_of(cl->path, '.');
   char *filetype = "application/octet-stream";
 
   if (dot > -1) {
-    unsigned int l = len(path);
+    unsigned int l = len(cl->path);
     int top = l - dot - 1;
 
     string_pool_reset_to_mark(&handler);
 
-    substr(path, route, dot + 1, top);
+    substr(cl->path, route, dot + 1, top);
     route[top] = '\0';
 
     if (strcmp(route, "html") == 0) {
@@ -108,10 +208,10 @@ void get(int client, hash_map *header, const char *path) {
       filetype = "application/javascript";
     } else if (strcmp(route, "png") == 0) {
       filetype = "image/png";
-    } else if (strcmp(route, "jpg") == 0 || strcmp(path, "jpeg") == 0) {
+    } else if (strcmp(route, "jpg") == 0 || strcmp(route, "jpeg") == 0) {
       filetype = "image/jpeg";
     } else if (strcmp(route, "mp4") == 0) {
-      chunk(&client, &fd, header, path, route);
+      chunk(&client, &fd, &cl->headers, cl->path, route);
       string_pool_destroy(&handler);
       close(fd);
       return;

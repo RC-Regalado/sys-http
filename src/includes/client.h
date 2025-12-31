@@ -6,6 +6,7 @@
 #include <time.h>
 
 #define CLIENT_BUF_SIZE 1024
+#define CLIENT_MAX_PATH 256
 
 typedef struct {
   int fd;
@@ -20,7 +21,7 @@ typedef struct {
   void *usr_data;
 
   char method[8];
-  char path[256];
+  char path[CLIENT_MAX_PATH];
   int state;
 } client;
 

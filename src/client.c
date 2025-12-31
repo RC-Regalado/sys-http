@@ -11,6 +11,7 @@
  * @return Client* puntero al cliente creado
  */
 client *client_create(int fd) {
+
   client *c = sysmap_alloc(sizeof(client));
   if (!c)
     return 0;
@@ -39,7 +40,7 @@ void client_destroy(client *c) {
 }
 
 /**
- * @brief Limpia el cliente para reutilizar la misma conexión
+ * @brief Limpia el cliente para reutilizar la misma instancia
  */
 void client_reset(client *c) {
   if (!c)
@@ -50,6 +51,8 @@ void client_reset(client *c) {
   c->state = 0;
   c->method[0] = 0;
   c->path[0] = 0;
+
+  c->fd = -1;
 
   hashmap_reset(&c->headers);
   string_pool_reset(&c->pool);
