@@ -30,19 +30,11 @@ unsigned short htons(unsigned short x) {
 
 void server() {
   struct sockaddr_in addr = {0}; // inicializa todo a 0
-  string_pool builder;
-  string_pool_init(&builder, 1024);
-
+  //
   int port = 5050;
   int enable = 1;
 
-  char *fmt = builder.base;
-
-  if (string_pool_format(&builder, "Hola mundo el puerto es %d \n", port) < 0) {
-    return;
-  }
-
-  logf(fmt);
+  logf("Iniciando el servicio en el puerto %d \n", port);
 
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
