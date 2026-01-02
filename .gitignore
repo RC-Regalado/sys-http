@@ -60,3 +60,5 @@ build/
 .workspace/*
 .workspace
 src/templates/
+
+.cache/

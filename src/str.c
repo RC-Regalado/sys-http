@@ -1,5 +1,7 @@
-#include "inc/str.h"
-#include "inc/memory.h"
+#include "str.h"
+#include "memory.h"
+
+#include <stdarg.h>
 
 unsigned int len(const char *str) {
   int i = 0;
@@ -26,6 +28,15 @@ unsigned int nlen(long number) {
 
 int strcmp(const char *s1, const char *s2) {
   while (*s1 && (*s1 == *s2)) {
+    s1++;
+    s2++;
+  }
+
+  return *(const unsigned char *)s1 - *(const unsigned char *)s2;
+}
+
+int strncmp(const char *s1, const char *s2, int size) {
+  while (*s1 && (*s1 == *s2) && size--) {
     s1++;
     s2++;
   }
@@ -62,6 +73,16 @@ int last_index_of(const char *s1, char c) {
     return -1;
 
   return l;
+}
+
+int string_n_copy(const char *src, char *buff, int n) {
+  int pos = 0;
+  while (pos < n && src[pos] != 0) {
+    buff[pos] = src[pos];
+    pos++;
+  }
+
+  return pos;
 }
 
 void substr(const char *s1, char *buffer, int pos, int size) {
@@ -207,4 +228,105 @@ void string_pool_reset_to_mark(string_pool *pool) {
 
   if (pool->offset > 0)
     pool->base[pool->offset - 1] = '\0';
+}
+
+// Temporalmente se repite lo hecho en el formar de IO
+// El sistema funcionará en modo append
+int string_pool_format(string_pool *pool, const char *fmt, ...) {
+  if (pool->offset == pool->capacity)
+    return NOMEM;
+
+  int res = 0;
+
+  va_list ap;
+  va_start(ap, fmt);
+
+  string_pool_mark(pool);
+
+  int w = pool->offset == 0 ? 0 : pool->offset - 1;
+  char *out = pool->base;
+
+  for (const char *p = fmt; *p && w < pool->capacity - 1; ++p) {
+    if (*p != '%') {
+      out[w++] = *p;
+      continue;
+    }
+
+    // tenemos un %
+    ++p;
+    if (!*p)
+      break;
+
+    if (*p == 's') {
+      const char *s = va_arg(ap, const char *);
+      if (!s)
+        s = "(null)";
+      while (*s && w < MAX_FORMAT_SIZE - 1)
+        out[w++] = *s++;
+
+      int i = w;
+      w = i;
+    } else if (*p == 'l' && *(p + 1) != 0 && *(p + 1) == 'd') {
+      ++p;
+      long v = va_arg(ap, long);
+      unsigned int L = nlen(v);
+      if (w + (int)L >= pool->capacity) {
+        string_pool_reset_to_mark(pool);
+        res = SIZEERR;
+        goto out;
+      }
+
+      char tmp[32];
+      unsigned int need =
+          (L + 1 <= sizeof(tmp)) ? (L + 1) : (unsigned int)sizeof(tmp);
+      tostr(tmp, v, need);
+      for (unsigned int i = 0; tmp[i] && w < pool->capacity - 1; ++i)
+        out[w++] = tmp[i];
+    } else if (*p == 'd') {
+      long v = va_arg(ap, int);
+      unsigned int L = nlen(v);
+      if (w + (int)L >= pool->capacity) {
+        string_pool_reset_to_mark(pool);
+        res = SIZEERR;
+        goto out;
+      }
+
+      char tmp[32];
+      unsigned int need =
+          (L + 1 <= sizeof(tmp)) ? (L + 1) : (unsigned int)sizeof(tmp);
+      tostr(tmp, v, need);
+      for (unsigned int i = 0; tmp[i] && w < pool->capacity - 1; ++i)
+        out[w++] = tmp[i];
+    } else if (*p == 'x') {
+      int v = va_arg(ap, int);
+      int tmp, i;
+      char hex[32];
+
+      i = 0;
+
+      while (v != 0 && w < pool->capacity - 1) {
+        tmp = v % 16;
+
+        hex[i++] = tmp + ((tmp < 10) ? 48 : 55);
+        v = v / 16;
+      }
+
+      while (i > 0)
+        out[w++] = hex[--i];
+
+    } else if (*p == '%') {
+      out[w++] = '%';
+    } else {
+      out[w++] = '%';
+      if (w < pool->capacity - 1)
+        out[w++] = *p;
+    }
+  }
+  out[w] = '\0';
+
+  pool->offset = w + 1;
+
+out:
+  va_end(ap);
+  return res;
 }

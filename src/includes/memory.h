@@ -1,6 +1,9 @@
 #ifndef __MEMORY_H
 #define __MEMORY_H
+
+#ifndef NULL
 #define NULL 0x0
+#endif // !NULL
 
 typedef struct {
   long size;

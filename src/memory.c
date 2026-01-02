@@ -1,4 +1,4 @@
-#include "inc/memory.h"
+#include "memory.h"
 
 extern void *sysalloc(long size);
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);

@@ -1,12 +1,12 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
-#include "inc/io.h"
-#include "inc/str.h"
+#include "io.h"
+#include "str.h"
 
 extern long syscall3(long syscall, long rdi, long rsi, long rdx);
 
-void format(long where, const char *fmt, va_list ap) {
+long format(int where, const char *fmt, va_list ap) {
   char out[LOG_BUF];
   int w = 0;
 
@@ -30,6 +30,9 @@ void format(long where, const char *fmt, va_list ap) {
         s = "(null)";
       while (*s && w < LOG_BUF - 1)
         out[w++] = *s++;
+
+      int i = w;
+      w = i;
     } else if (*p == 'l' && *(p + 1) != 0 && *(p + 1) == 'd') {
       ++p;
       long v = va_arg(ap, long);
@@ -53,6 +56,23 @@ void format(long where, const char *fmt, va_list ap) {
       tostr(tmp, v, need);
       for (unsigned int i = 0; tmp[i] && w < LOG_BUF - 1; ++i)
         out[w++] = tmp[i];
+    } else if (*p == 'x') {
+      int v = va_arg(ap, int);
+      int tmp, i;
+      char hex[32];
+
+      i = 0;
+
+      while (v != 0 && w < LOG_BUF - 1) {
+        tmp = v % 16;
+
+        hex[i++] = tmp + ((tmp < 10) ? 48 : 55);
+        v = v / 16;
+      }
+
+      while (i > 0)
+        out[w++] = hex[--i];
+
     } else if (*p == '%') {
       out[w++] = '%';
     } else {
@@ -63,19 +83,24 @@ void format(long where, const char *fmt, va_list ap) {
   }
   out[w] = '\0';
 
-  syscall3(SYS_WRITE, where, (long)out, w);
+  return syscall3(SYS_WRITE, where, (long)out, w);
 }
+
 long write(long where, const char *data, int size) {
   return syscall3(SYS_WRITE, where, (long)data, size);
 }
 
-void writef(long where, const char *fmt, ...) {
+long writef(long where, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
 
-  format(where, fmt, ap);
+  // int size;
+  long result = format(where, fmt, ap);
+  //  syscall3(SYS_WRITE, where, (long)out, size);
 
   va_end(ap);
+
+  return result;
 }
 
 void logf(const char *fmt, ...) {
@@ -130,14 +155,35 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
     if (bytes_read == 0) {
       return 0; // EOF limpio
     } else if (bytes_read < 0) {
+
+      long err = -bytes_read;
+      if (err == EAGAIN || err == EWOULDBLOCK)
+        continue;
+
       return -1; // error de lectura
     }
 
     reader->write_pos += bytes_read;
+
+    if (bytes_read < chunk_len) {
+      bytes_read = read(reader->fd, reader->buffer + reader->write_pos,
+                        LINE_BUF_SIZE - reader->write_pos);
+
+      if (bytes_read > 0) {
+        reader->write_pos += bytes_read;
+      }
+
+      /* n < 0 */
+      long err = -bytes_read; /* si capturas errno directamente */
+
+      if (err != EAGAIN || err != EWOULDBLOCK) {
+        return -1; /* error real */
+      }
+    }
   }
 }
 
-unsigned int read(long instream, char *buffer, unsigned short lenght) {
+long read(long instream, char *buffer, unsigned short lenght) {
   return syscall3(SYS_READ, instream, (long)buffer, lenght);
 }
 
@@ -149,4 +195,19 @@ void close(int fd) { syscall3(SYS_CLOSE, fd, 0, 0); }
 
 int stat_file(int fd, struct stat *sb) {
   return syscall3(SYS_STAT, fd, (long)sb, 0);
+}
+
+long sendfile(int out_fd, int in_fd, void *off, long count) {
+  long ret;
+  asm volatile("mov $40, %%rax \n" // SYS_sendfile
+               "mov %1,  %%rdi \n" // out_fd
+               "mov %2,  %%rsi \n" // in_fd
+               "mov %3,  %%rdx \n" // offset (off_t*)
+               "mov %4,  %%r10 \n" // count
+               "syscall        \n"
+               "mov %%rax, %0  \n"
+               : "=r"(ret)
+               : "r"((long)out_fd), "r"((long)in_fd), "r"(off), "r"(count)
+               : "rax", "rdi", "rsi", "rdx", "r10", "rcx", "r11", "memory");
+  return ret; // <0 => -errno
 }

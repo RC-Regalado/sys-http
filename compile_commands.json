@@ -1,0 +1,34 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-I./src",
+      "-Isrc/includes",
+      "-g",
+      "-ffreestanding",
+      "-falign-jumps",
+      "-falign-functions",
+      "-falign-labels",
+      "-falign-loops",
+      "-fstrength-reduce",
+      "-fomit-frame-pointer",
+      "-finline-functions",
+      "-Wno-unused-function",
+      "-fno-builtin",
+      "-Werror",
+      "-Wno-unused-label",
+      "-Wno-cpp",
+      "-Wno-unused-parameter",
+      "-Wall",
+      "-O0",
+      "-fno-stack-protector",
+      "-c",
+      "-o",
+      "build/files.o",
+      "src/files.c"
+    ],
+    "directory": "/home/rc-regalado/git/cpp_projects/sys-http",
+    "file": "/home/rc-regalado/git/cpp_projects/sys-http/src/files.c",
+    "output": "/home/rc-regalado/git/cpp_projects/sys-http/build/files.o"
+  }
+]
