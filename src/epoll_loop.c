@@ -114,6 +114,12 @@ void event_loop(int sockfd) {
         //        write_response(c->fd, &c->headers);
         syscall3(SYS_EPOLL_CTL, epfd, EPOLL_CTL_DEL, c->fd);
         client_destroy(c);
+      } else {
+        c->want_read = 1;
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.fd = c->fd;
+        sys_epoll_ctl(epfd, EPOLL_CTL_MOD, c->fd, (long)&ev);
+        logf("Cliente %d reciclado\n", c->fd);
       }
     }
   }

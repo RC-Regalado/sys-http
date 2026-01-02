@@ -30,6 +30,9 @@
 #define O_NONBLOCK 04000
 #endif
 
+#define EAGAIN 11
+#define EWOULDBLOCK EAGAIN
+
 typedef struct {
   int fd;                     // File descriptor (socket o archivo)
   char buffer[LINE_BUF_SIZE]; // Buffer interno
@@ -44,7 +47,7 @@ long writef(long where, const char *fmt, ...);
 void logf(const char *fmt, ...);
 
 int readline_stream(line_reader *reader, unsigned short chunk_len);
-unsigned int read(long instream, char *buffer, unsigned short len);
+long read(long instream, char *buffer, unsigned short len);
 
 int open(const char *filename, int flags);
 void close(int fd);

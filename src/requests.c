@@ -2,6 +2,7 @@
 #include "hashmap.h"
 #include "io.h"
 #include "str.h"
+#include <time.h>
 
 #include "requests.h"
 
@@ -20,9 +21,28 @@ void parse_headers(hash_map *map, string_pool *pool, char *data) {
     logf("Error en memoria");
 
   substr(data, key, 0, colon);
-  substr(data, value, colon + 1, value_len);
+  substr(data, value, colon + 2, value_len); //  +2 por el espacio
 
   hashmap_put(map, key, value);
+}
+
+static void want_close(client *cl) {
+  const char *conn = hashmap_get(&cl->headers, "Connection");
+
+  if (conn == NULL)
+    return;
+
+  if (strcmp(conn, "keep-alive") == 0) {
+    cl->state = STATE_KEEP_ALIVE;
+    cl->want_close = 0;
+  }
+
+  if (strcmp(conn, "close") == 0) {
+    cl->want_close = 1;
+    cl->state = 0;
+  }
+
+  cl->want_close = 1;
 }
 
 int read_incoming(client *cl) {
@@ -31,7 +51,8 @@ int read_incoming(client *cl) {
   int pos = 0;
   char *line;
 
-  while (readline_stream(&reader, 1024) > 0) {
+  int n = 0;
+  while ((n = readline_stream(&reader, 1024)) > 0) {
     line = &reader.buffer[pos];
     if (pos == 0) {
       char *key = string_pool_alloc(&cl->pool, "REQUEST\0");
@@ -43,6 +64,9 @@ int read_incoming(client *cl) {
     pos = reader.read_pos;
   }
 
+  want_close(cl);
+
+  cl->want_read = 0;
   cl->want_write = 1;
 
   return 0;
@@ -101,6 +125,9 @@ void write_response(client *cl) {
   }
 
   string_pool_destroy(&handler);
+
+  want_close(cl);
+  cl->want_write = 0;
 }
 
 void write_headers(int client, enum request_status status) {
@@ -210,6 +237,8 @@ void get(client *cl) {
       filetype = "image/png";
     } else if (strcmp(route, "jpg") == 0 || strcmp(route, "jpeg") == 0) {
       filetype = "image/jpeg";
+    } else if (strcmp(route, "ico") == 0) {
+      filetype = "image/vnd.microsoft.icon";
     } else if (strcmp(route, "mp4") == 0) {
       chunk(&client, &fd, &cl->headers, cl->path, route);
       string_pool_destroy(&handler);
@@ -219,12 +248,25 @@ void get(client *cl) {
   }
 
   write_headers(client, OK);
-  writef(client, "Content-Type: %s\r\n", filetype);
-  writef(client, "Content-Length: %ld\r\n", sb.st_size);
-  writef(client, "Connection: close\r\n");
-  write(client, "\r\n", 2);
 
   string_pool_reset(&handler);
+
+  string_pool_format(&handler, "Content-Type: %s\r\n", filetype);
+  string_pool_format(&handler, "Content-Length: %ld\r\n", sb.st_size);
+
+  /*
+  if (cl->state == STATE_KEEP_ALIVE)
+    string_pool_append(&handler, "Connection: keep-alive\r\n\r\n", 0);
+  else
+                       */
+  // Aun no entiendo como funciona XD
+  string_pool_append(&handler, "Connection: close\r\n\r\n", 0);
+  //  string_pool_append(&handler, "\r\n", 0);
+
+  // Se restan 2 porque:
+  // 1 -> offset es size+1
+  // 2 -> size incluye \0 que no se envía en cabeceras
+  write(client, handler.base, handler.offset - 2);
 
   long off = 0;
   long remaining = sb.st_size;

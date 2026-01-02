@@ -155,14 +155,35 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
     if (bytes_read == 0) {
       return 0; // EOF limpio
     } else if (bytes_read < 0) {
+
+      long err = -bytes_read;
+      if (err == EAGAIN || err == EWOULDBLOCK)
+        continue;
+
       return -1; // error de lectura
     }
 
     reader->write_pos += bytes_read;
+
+    if (bytes_read < chunk_len) {
+      bytes_read = read(reader->fd, reader->buffer + reader->write_pos,
+                        LINE_BUF_SIZE - reader->write_pos);
+
+      if (bytes_read > 0) {
+        reader->write_pos += bytes_read;
+      }
+
+      /* n < 0 */
+      long err = -bytes_read; /* si capturas errno directamente */
+
+      if (err != EAGAIN || err != EWOULDBLOCK) {
+        return -1; /* error real */
+      }
+    }
   }
 }
 
-unsigned int read(long instream, char *buffer, unsigned short lenght) {
+long read(long instream, char *buffer, unsigned short lenght) {
   return syscall3(SYS_READ, instream, (long)buffer, lenght);
 }
 

@@ -243,7 +243,7 @@ int string_pool_format(string_pool *pool, const char *fmt, ...) {
 
   string_pool_mark(pool);
 
-  int w = pool->offset;
+  int w = pool->offset == 0 ? 0 : pool->offset - 1;
   char *out = pool->base;
 
   for (const char *p = fmt; *p && w < pool->capacity - 1; ++p) {
@@ -324,7 +324,7 @@ int string_pool_format(string_pool *pool, const char *fmt, ...) {
   }
   out[w] = '\0';
 
-  pool->offset = w;
+  pool->offset = w + 1;
 
 out:
   va_end(ap);

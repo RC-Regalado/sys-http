@@ -1,4 +1,4 @@
-FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o ./build/requests.o ./build/epoll.o ./build/epoll_loop.o ./build/client.o
+FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o ./build/requests.o ./build/epoll.o ./build/epoll_loop.o ./build/client.o ./build/files.o
 INCLUDES = -I./src -Isrc/includes
 FLAGS = -g -ffreestanding -falign-jumps -falign-functions -falign-labels -falign-loops -fstrength-reduce -fomit-frame-pointer -finline-functions -Wno-unused-function -fno-builtin -Werror -Wno-unused-label -Wno-cpp -Wno-unused-parameter -nostdlib -nostartfiles -nodefaultlibs -Wall -O0 -fno-stack-protector
 

@@ -1,5 +1,6 @@
 // client.c
 #include "client.h"
+#include "files.h"
 #include "hashmap.h"
 #include "io.h"
 #include "memory.h"
@@ -15,6 +16,7 @@ client *client_create(int fd) {
   client *c = sysmap_alloc(sizeof(client));
   if (!c)
     return 0;
+  fd_set_nonblock(fd);
 
   c->fd = fd;
   c->want_read = 1;

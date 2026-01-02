@@ -8,6 +8,8 @@
 #define CLIENT_BUF_SIZE 1024
 #define CLIENT_MAX_PATH 256
 
+#define STATE_KEEP_ALIVE 1
+
 typedef struct {
   int fd;
   int want_read;
