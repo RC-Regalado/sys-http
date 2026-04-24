@@ -1,7 +1,7 @@
 #include "memory.h"
+#include "syscalls.h"
 
 extern void *sysalloc(long size);
-extern long syscall3(long syscall, long rdi, long rsi, long rdx);
 
 void *sysmap_alloc(long size) {
   long total = size + sizeof(sysmap_header);
@@ -28,5 +28,5 @@ int sysmap_free(void *ptr) {
   sysmap_header *h = ((sysmap_header *)ptr) - 1;
   h->used = 0;
 
-  return syscall3(11, (long)h, h->size, 0);
+  return sys_munmap((void *)h, h->size);
 }

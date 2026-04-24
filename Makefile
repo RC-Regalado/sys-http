@@ -1,11 +1,12 @@
-FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o ./build/requests.o ./build/epoll.o ./build/epoll_loop.o ./build/client.o ./build/files.o
-INCLUDES = -I./src -Isrc/includes
-FLAGS = -g -ffreestanding -falign-jumps -falign-functions -falign-labels -falign-loops -fstrength-reduce -fomit-frame-pointer -finline-functions -Wno-unused-function -fno-builtin -Werror -Wno-unused-label -Wno-cpp -Wno-unused-parameter -nostdlib -nostartfiles -nodefaultlibs -Wall -O0 -fno-stack-protector
+FILES = ./build/main.o ./build/io.o ./build/str.o ./build/hashmap.o ./build/mmap.o ./build/memory.o ./build/server.o ./build/requests.o ./build/epoll_loop.o ./build/client.o ./build/files.o ./build/syscalls.o ./build/json.o ./build/database.o
+INCLUDES = -I./src -Isrc/includes -Imicrodb/src/include/
+FLAGS = -g -ffreestanding -falign-jumps -falign-functions -falign-labels -falign-loops -fstrength-reduce -fomit-frame-pointer -finline-functions -Wno-unused-function -fno-builtin -Werror -Wno-unused-label -Wno-cpp -Wno-unused-parameter -nostdlib -nostartfiles -nodefaultlibs -Wall -O0 -fno-stack-protector 
+MICROLIB = ./bin/libmicrodb.so
 
 all: ./bin/server
 
-./bin/server: $(FILES)
-	gcc $(FLAGS) -o $@ $(FILES)
+./bin/server: $(MICROLIB) $(FILES)
+	gcc $(FLAGS) -L./bin -lmicrodb -o $@ $(FILES)
 	cp -r templates/ bin/
 
 build/%.o: src/asm/%.s
@@ -15,7 +16,11 @@ build/%.o: src/%.c
 	gcc $(INCLUDES) $(FLAGS) -c $< -o $@
 
 clean:
-		@rm -rf ./bin/server
+		@rm ./bin/server
+		@rm $(MICROLIB)
 		@rm -rf ${FILES}
+		@$(MAKE) -C microdb clean
 
-
+$(MICROLIB):
+		@$(MAKE) -C microdb
+		@cp microdb/bin/libmicrodb.so bin/

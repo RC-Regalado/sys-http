@@ -183,35 +183,37 @@ int string_pool_relloc(string_pool *pool, long new_capacity) {
 
 char *string_pool_append(string_pool *pool, const char *src,
                          unsigned char realloc) {
+  if (!pool || !pool->base || !src)
+    return NULL;
+
   long size = len(src);
+  long index = pool->offset == 0 ? 0 : pool->offset - 1;
+  long required = index + size + 1;
 
-  if (pool->offset + size > pool->capacity) {
+  if (required > pool->capacity) {
     if (!realloc)
-      return NULL; // no hay espacio
+      return NULL;
 
-    if (string_pool_relloc(pool, pool->capacity * 2) != 0)
+    long new_capacity = pool->capacity * 2;
+    while (new_capacity < required)
+      new_capacity *= 2;
+
+    if (string_pool_relloc(pool, new_capacity) != 0)
       return NULL;
   }
 
-  long index = pool->offset == 0 ? 0 : pool->offset - 1;
-
   char *dest = &pool->base[index];
-
-  for (long i = 0; i < size; i++) {
+  for (long i = 0; i < size; ++i)
     dest[i] = src[i];
-  }
   dest[size] = '\0';
-  pool->offset += size + 1;
+  pool->offset = required;
 
-  if (index > 0) {
-    // Encontrar 0 o el último corte del pool
-    while (pool->base[index] != '\0' && index > 0) {
-      index--;
-    }
-    return &pool->base[index];
-  }
+  if (index == 0)
+    return dest;
 
-  return dest;
+  while (index > 0 && pool->base[index - 1] != '\0')
+    index--;
+  return &pool->base[index];
 }
 
 void string_pool_reset(string_pool *pool) {

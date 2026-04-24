@@ -7,20 +7,12 @@
 #include "client.h"
 #include "io.h"
 #include "requests.h"
-#include "syscall.h"
+#include "syscalls.h"
 
 #include <sys/epoll.h>
-#include <sys/syscall.h>
-// #include <unistd.h>
 
 #define MAX_EVENTS 128
 #define CLIENT_CAPACITY 1024
-
-extern long syscall3(long syscall, long rdi, long rsi, long rdx);
-
-extern int sys_epoll_create1();
-extern void sys_epoll_ctl(long epfd, long epoll_ctl_add, long sockfd, long ev);
-extern int sys_epoll_wait(long epfd, long events, long max_events);
 
 /** Array estático de clientes */
 static client *clients[CLIENT_CAPACITY];
@@ -59,21 +51,21 @@ client *new_client(int fd) {
  */
 void event_loop(int sockfd) {
   struct epoll_event ev, events[MAX_EVENTS];
-  int epfd = sys_epoll_create1();
+  int epfd = sys_epoll_create1(0);
 
   ev.events = EPOLLIN;
   ev.data.fd = sockfd;
-  sys_epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, (long)&ev);
+  sys_epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd, &ev);
 
   while (1) {
-    int nfds = sys_epoll_wait(epfd, (long)events, MAX_EVENTS);
+    int nfds = sys_epoll_wait(epfd, events, MAX_EVENTS, -1);
 
     for (int i = 0; i < nfds; ++i) {
       int fd = events[i].data.fd;
       client *c;
 
-      if (fd != sockfd) {
-        int client_fd = syscall3(SYS_ACCEPT, sockfd, 0, 0);
+      if (fd == sockfd) {
+        int client_fd = sys_accept(sockfd, 0, 0);
         c = new_client(client_fd);
 
         if (!c) {
@@ -84,7 +76,7 @@ void event_loop(int sockfd) {
 
         ev.events = EPOLLIN | EPOLLET;
         ev.data.fd = client_fd;
-        sys_epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, (long)&ev);
+        sys_epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev);
         logf("Cliente %d aceptado\n", client_fd);
 
       } else {
@@ -100,7 +92,7 @@ void event_loop(int sockfd) {
         if (status < 0) {
           logf("Error leyendo de cliente %d\n", c->fd);
           client_destroy(c);
-          syscall3(SYS_EPOLL_CTL, epfd, EPOLL_CTL_DEL, c->fd);
+          sys_epoll_ctl(epfd, EPOLL_CTL_DEL, c->fd, 0);
           close(c->fd);
           continue;
         }
@@ -112,13 +104,13 @@ void event_loop(int sockfd) {
 
       if (c->want_close) {
         //        write_response(c->fd, &c->headers);
-        syscall3(SYS_EPOLL_CTL, epfd, EPOLL_CTL_DEL, c->fd);
+        sys_epoll_ctl(epfd, EPOLL_CTL_DEL, c->fd, 0);
         client_destroy(c);
       } else {
         c->want_read = 1;
         ev.events = EPOLLIN | EPOLLET;
         ev.data.fd = c->fd;
-        sys_epoll_ctl(epfd, EPOLL_CTL_MOD, c->fd, (long)&ev);
+        sys_epoll_ctl(epfd, EPOLL_CTL_MOD, c->fd, &ev);
         logf("Cliente %d reciclado\n", c->fd);
       }
     }

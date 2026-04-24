@@ -3,8 +3,7 @@
 
 #include "io.h"
 #include "str.h"
-
-extern long syscall3(long syscall, long rdi, long rsi, long rdx);
+#include "syscalls.h"
 
 long format(int where, const char *fmt, va_list ap) {
   char out[LOG_BUF];
@@ -83,20 +82,18 @@ long format(int where, const char *fmt, va_list ap) {
   }
   out[w] = '\0';
 
-  return syscall3(SYS_WRITE, where, (long)out, w);
+  return sys_write(where, out, w);
 }
 
 long write(long where, const char *data, int size) {
-  return syscall3(SYS_WRITE, where, (long)data, size);
+  return sys_write(where, data, size);
 }
 
 long writef(long where, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
 
-  // int size;
   long result = format(where, fmt, ap);
-  //  syscall3(SYS_WRITE, where, (long)out, size);
 
   va_end(ap);
 
@@ -184,30 +181,19 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
 }
 
 long read(long instream, char *buffer, unsigned short lenght) {
-  return syscall3(SYS_READ, instream, (long)buffer, lenght);
+  return sys_read(instream, buffer, lenght);
 }
 
 int open(const char *filename, int flags) {
-  return syscall3(SYS_OPEN, (long)filename, flags, 0);
+  return sys_open(filename, flags, 0);
 }
 
-void close(int fd) { syscall3(SYS_CLOSE, fd, 0, 0); }
+void close(int fd) { sys_close(fd); }
 
 int stat_file(int fd, struct stat *sb) {
-  return syscall3(SYS_STAT, fd, (long)sb, 0);
+  return sys_fstat(fd, sb);
 }
 
 long sendfile(int out_fd, int in_fd, void *off, long count) {
-  long ret;
-  asm volatile("mov $40, %%rax \n" // SYS_sendfile
-               "mov %1,  %%rdi \n" // out_fd
-               "mov %2,  %%rsi \n" // in_fd
-               "mov %3,  %%rdx \n" // offset (off_t*)
-               "mov %4,  %%r10 \n" // count
-               "syscall        \n"
-               "mov %%rax, %0  \n"
-               : "=r"(ret)
-               : "r"((long)out_fd), "r"((long)in_fd), "r"(off), "r"(count)
-               : "rax", "rdi", "rsi", "rdx", "r10", "rcx", "r11", "memory");
-  return ret; // <0 => -errno
+  return sys_sendfile(out_fd, in_fd, off, count);
 }

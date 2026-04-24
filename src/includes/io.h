@@ -2,12 +2,6 @@
 #define __IO_H
 #include <stdarg.h>
 #include <sys/stat.h>
-// SYSCALL
-#define SYS_READ 0
-#define SYS_WRITE 1
-#define SYS_OPEN 2
-#define SYS_CLOSE 3
-#define SYS_STAT 5
 
 // OUTPUTS
 #define STDOUT 1

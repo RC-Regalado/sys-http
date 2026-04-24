@@ -1,12 +1,159 @@
 #include "client.h"
+#include "database.h"
 #include "hashmap.h"
 #include "io.h"
+#include "json.h"
 #include "str.h"
+#include "syscalls.h"
 #include <time.h>
 
 #include "requests.h"
 
-extern long _getsockopt(int fd, void *optval, unsigned int *optlen);
+static int starts_with(const char *text, const char *prefix) {
+  int i = 0;
+  while (prefix[i] != '\0') {
+    if (text[i] != prefix[i])
+      return 0;
+    i++;
+  }
+  return 1;
+}
+
+static long parse_decimal(const char *s) {
+  if (!s)
+    return -1;
+
+  long value = 0;
+  int i = 0;
+  while (s[i] == ' ')
+    i++;
+  while (s[i] >= '0' && s[i] <= '9') {
+    value = (value * 10) + (s[i] - '0');
+    i++;
+  }
+  return value;
+}
+
+static int read_body(client *cl, line_reader *reader) {
+  const char *content_len = hashmap_get(&cl->headers, "Content-Length");
+  long body_len = parse_decimal(content_len);
+
+  if (body_len <= 0)
+    return 0;
+
+  if (cl->pool.offset + body_len + 1 >= cl->pool.capacity) {
+    long need = cl->pool.offset + body_len + 1;
+    if (string_pool_relloc(&cl->pool, need * 2) < 0)
+      return -1;
+  }
+
+  char *body = &cl->pool.base[cl->pool.offset];
+  long buffered = reader->write_pos - reader->read_pos;
+  if (buffered < 0)
+    buffered = 0;
+  if (buffered > body_len)
+    buffered = body_len;
+
+  for (long i = 0; i < buffered; ++i)
+    body[i] = reader->buffer[reader->read_pos + i];
+
+  long copied = buffered;
+  while (copied < body_len) {
+    long n = read(cl->fd, body + copied, body_len - copied);
+    if (n <= 0)
+      return -1;
+    copied += n;
+  }
+
+  body[body_len] = '\0';
+  cl->pool.offset += body_len + 1;
+
+  char *key = string_pool_alloc(&cl->pool, "BODY");
+  if (!key)
+    return -1;
+  hashmap_put(&cl->headers, key, body);
+  return 0;
+}
+
+static const char *skip_ws(const char *p) {
+  while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
+    p++;
+  return p;
+}
+
+static int extract_json_key(const char *body, char *out, int out_size) {
+  if (!body || !out || out_size < 2)
+    return -1;
+
+  const char *p = body;
+  while (*p) {
+    if (p[0] == '"' && p[1] == 'k' && p[2] == 'e' && p[3] == 'y' &&
+        p[4] == '"') {
+      p += 5;
+      p = skip_ws(p);
+      if (*p != ':')
+        return -1;
+      p++;
+      p = skip_ws(p);
+      if (*p != '"')
+        return -1;
+      p++;
+
+      int n = 0;
+      while (*p && *p != '"') {
+        if (*p == '\\' && *(p + 1)) {
+          p++;
+        }
+        if (n >= out_size - 1)
+          return -1;
+        out[n++] = *p++;
+      }
+      if (*p != '"')
+        return -1;
+      out[n] = '\0';
+      return 0;
+    }
+    p++;
+  }
+  return -1;
+}
+
+static int write_json_reply(int client, enum request_status status,
+                            const char *key, int ok) {
+  string_pool storage;
+  string_pool body;
+  json_object obj;
+
+  if (string_pool_init(&storage, 512) < 0 || string_pool_init(&body, 512) < 0)
+    return -1;
+  if (json_object_init(&obj, &storage) < 0) {
+    string_pool_destroy(&storage);
+    string_pool_destroy(&body);
+    return -1;
+  }
+
+  json_add_bool(&obj, "ok", ok);
+  if (key)
+    json_add_string(&obj, "key", key);
+  else
+    json_add_null(&obj, "key");
+
+  if (json_serialize(&obj, &body) < 0) {
+    string_pool_destroy(&storage);
+    string_pool_destroy(&body);
+    return -1;
+  }
+
+  write_headers(client, status);
+  writef(client, "Content-Type: application/json\r\n");
+  writef(client, "Content-Length: %ld\r\n", len(body.base));
+  writef(client, "Connection: close\r\n\r\n");
+  write(client, body.base, len(body.base));
+
+  string_pool_destroy(&storage);
+  string_pool_destroy(&body);
+  return 0;
+}
 
 void parse_headers(hash_map *map, string_pool *pool, char *data) {
   int colon = index(data, ':');
@@ -63,6 +210,9 @@ int read_incoming(client *cl) {
     }
     pos = reader.read_pos;
   }
+
+  if (read_body(cl, &reader) < 0)
+    return -1;
 
   want_close(cl);
 
@@ -169,7 +319,7 @@ void chunk(int *client, int *fd, hash_map *header, const char *path,
   long dead = 0;
 
   while (!dead && (bytes_read = read(*fd, buffer, 256)) > 0) {
-    if (_getsockopt(*client, &err, &err_len) || err) {
+    if (sys_getsockopt(*client, SOL_SOCKET, SO_ERROR, &err, &err_len) || err) {
       dead = 1;
       break;
     }
@@ -186,6 +336,20 @@ void chunk(int *client, int *fd, hash_map *header, const char *path,
 void get(client *cl) {
   string_pool handler;
   string_pool_init(&handler, 1024);
+
+  if (starts_with(cl->path, "database/")) {
+    const char *id = cl->path + 9;
+    if (*id == '\0') {
+      write_headers(cl->fd, NOT_FOUND);
+      string_pool_destroy(&handler);
+      cl->want_close = 1;
+      return;
+    }
+    database_route(cl, id);
+    string_pool_destroy(&handler);
+    cl->want_close = 1;
+    return;
+  }
 
   const char templates_dir[] = "templates/";
 
@@ -286,14 +450,66 @@ void get(client *cl) {
 }
 
 void post(int client, hash_map *headers, const char *path) {
-  const char response[] = "{'hex': ";
-  int size = len(response) + 5;
+  if (strcmp(path, "database") == 0) {
+    const char *body = hashmap_get(headers, "BODY");
+    char key[128];
+
+    if (!body || extract_json_key(body, key, sizeof(key)) < 0) {
+      write_json_reply(client, UNKNOWN, 0, 0);
+      return;
+    }
+
+    int saved = database_set(key, body, len(body));
+    if (saved == 0)
+      write_json_reply(client, OK, key, 1);
+    else
+      write_json_reply(client, INTERNAL_ERROR, key, 0);
+    return;
+  }
+
+  string_pool json_storage;
+  string_pool response;
+  json_object obj;
+
+  if (string_pool_init(&json_storage, 512) < 0 ||
+      string_pool_init(&response, 1024) < 0) {
+    write_headers(client, INTERNAL_ERROR);
+    return;
+  }
+
+  if (json_object_init(&obj, &json_storage) < 0) {
+    write_headers(client, INTERNAL_ERROR);
+    string_pool_destroy(&json_storage);
+    string_pool_destroy(&response);
+    return;
+  }
+
+  const char *accept = hashmap_get(headers, "Accept");
+  json_add_string(&obj, "status", "ok");
+  json_add_number(&obj, "hex", 10);
+  json_add_string(&obj, "path", path ? path : "/");
+  if (accept) {
+    json_add_string(&obj, "accept", accept);
+  } else {
+    json_add_null(&obj, "accept");
+  }
+
+  if (json_serialize(&obj, &response) < 0) {
+    write_headers(client, INTERNAL_ERROR);
+    string_pool_destroy(&json_storage);
+    string_pool_destroy(&response);
+    return;
+  }
+
+  int size = len(response.base);
 
   write_headers(client, OK);
-  writef(client, "Content-Type: %s\r\n", hashmap_get(headers, "Accept"));
+  writef(client, "Content-Type: application/json\r\n");
   writef(client, "Content-Length: %ld\r\n", size);
   writef(client, "Connection: close\r\n");
   write(client, "\r\n", 2);
+  write(client, response.base, size);
 
-  writef(client, "%s '%x'}", response, 10);
+  string_pool_destroy(&json_storage);
+  string_pool_destroy(&response);
 }

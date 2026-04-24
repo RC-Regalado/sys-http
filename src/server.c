@@ -3,18 +3,12 @@
 #include "epoll_loop.h"
 #include "io.h"
 #include "str.h"
-
-#define SYS_SOCKET 41
-#define SYS_BIND 49
-#define SYS_LISTEN 50
-#define SYS_ACCEPT 43
+#include "syscalls.h"
 
 #define AF_INET 2
 #define SOCK_STREAM 1
 
 extern void _start();
-extern long syscall3(long syscall, long rdi, long rsi, long rdx);
-extern long setsockopt(long fd, long optval, long optlen);
 
 struct sockaddr_in {
   unsigned short sin_family;
@@ -40,20 +34,20 @@ void server() {
   addr.sin_port = htons(port);
   addr.sin_addr = 0; // INADDR_ANY
 
-  int sockfd = syscall3(SYS_SOCKET, AF_INET, SOCK_STREAM, 0);
+  int sockfd = sys_socket(AF_INET, SOCK_STREAM, 0);
 
   if (sockfd < 0) {
     logf("Ha ocurrido un error al iniciar el socket.\n");
     return;
   }
 
-  setsockopt(sockfd, (long)&enable, sizeof(int));
+  sys_setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 
-  if (syscall3(SYS_BIND, sockfd, (long)&addr, sizeof(addr)) < 0) {
+  if (sys_bind(sockfd, &addr, sizeof(addr)) < 0) {
     logf("El puerto ya está en uso!\n");
     return;
   }
-  syscall3(SYS_LISTEN, sockfd, 5, 0);
+  sys_listen(sockfd, 5);
 
   event_loop(sockfd);
 }
