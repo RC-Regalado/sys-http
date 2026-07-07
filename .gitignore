@@ -75,3 +75,6 @@ bck/
 *.wal
 
 .project-envrc
+
+http_handler
+frontend
