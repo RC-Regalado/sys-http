@@ -5,6 +5,9 @@ MICROLIB = ./bin/libmicrodb.so
 
 all: ./bin/server
 
+test: ./bin/server
+	sh scripts/http_smoke.sh
+
 ./bin/server: $(MICROLIB) $(FILES)
 	gcc $(FLAGS) -L./bin -lmicrodb -o $@ $(FILES)
 	cp -r templates/ bin/

@@ -9,6 +9,14 @@
 
 #include "requests.h"
 
+static void handle_get(client *cl);
+static void handle_post(int client, hash_map *headers, const char *path);
+
+typedef struct {
+  int method_len;
+  int path_len;
+} request_line;
+
 static int starts_with(const char *text, const char *prefix) {
   int i = 0;
   while (prefix[i] != '\0') {
@@ -17,6 +25,22 @@ static int starts_with(const char *text, const char *prefix) {
     i++;
   }
   return 1;
+}
+
+static int has_parent_segment(const char *path) {
+  for (int i = 0; path[i] != '\0'; i++) {
+    if (path[i] != '.')
+      continue;
+    if (path[i + 1] != '.')
+      continue;
+
+    char before = i == 0 ? '/' : path[i - 1];
+    char after = path[i + 2];
+    if ((before == '/' || before == '\\') &&
+        (after == '\0' || after == '/' || after == '\\'))
+      return 1;
+  }
+  return 0;
 }
 
 static long parse_decimal(const char *s) {
@@ -118,6 +142,36 @@ static int extract_json_key(const char *body, char *out, int out_size) {
   return -1;
 }
 
+static void write_status_line(int client, enum request_status status) {
+  switch (status) {
+  case OK:
+    writef(client, "HTTP/1.1 200 OK\r\n");
+    break;
+  case INTERNAL_ERROR:
+    writef(client, "HTTP/1.1 500 Internal Server Error\r\n");
+    break;
+  case FORBIDDEN:
+    writef(client, "HTTP/1.1 403 Forbidden\r\n");
+    break;
+  case NOT_FOUND:
+    writef(client, "HTTP/1.1 404 Not Found\r\n");
+    break;
+  default:
+    writef(client, "HTTP/1.1 400 Bad Request\r\n");
+  }
+}
+
+static void write_json_body(int client, enum request_status status,
+                            const char *body) {
+  int body_len = len(body);
+
+  write_status_line(client, status);
+  writef(client, "Content-Type: application/json\r\n");
+  writef(client, "Content-Length: %ld\r\n", body_len);
+  writef(client, "Connection: close\r\n\r\n");
+  write(client, body, body_len);
+}
+
 static int write_json_reply(int client, enum request_status status,
                             const char *key, int ok) {
   string_pool storage;
@@ -144,18 +198,14 @@ static int write_json_reply(int client, enum request_status status,
     return -1;
   }
 
-  write_headers(client, status);
-  writef(client, "Content-Type: application/json\r\n");
-  writef(client, "Content-Length: %ld\r\n", len(body.base));
-  writef(client, "Connection: close\r\n\r\n");
-  write(client, body.base, len(body.base));
+  write_json_body(client, status, body.base);
 
   string_pool_destroy(&storage);
   string_pool_destroy(&body);
   return 0;
 }
 
-void parse_headers(hash_map *map, string_pool *pool, char *data) {
+static void parse_header_line(hash_map *map, string_pool *pool, char *data) {
   int colon = index(data, ':');
 
   int data_len = len(data);
@@ -173,7 +223,7 @@ void parse_headers(hash_map *map, string_pool *pool, char *data) {
   hashmap_put(map, key, value);
 }
 
-static void want_close(client *cl) {
+static void apply_connection_header(client *cl) {
   const char *conn = hashmap_get(&cl->headers, "Connection");
 
   if (conn == NULL)
@@ -193,8 +243,10 @@ static void want_close(client *cl) {
 }
 
 int read_incoming(client *cl) {
-  line_reader reader = {.read_pos = 0, .write_pos = 0};
+  line_reader reader;
   reader.fd = cl->fd;
+  reader.read_pos = 0;
+  reader.write_pos = 0;
   int pos = 0;
   char *line;
 
@@ -206,7 +258,7 @@ int read_incoming(client *cl) {
       char *value = string_pool_alloc(&cl->pool, line);
       hashmap_put(&cl->headers, key, value);
     } else {
-      parse_headers(&cl->headers, &cl->pool, line);
+      parse_header_line(&cl->headers, &cl->pool, line);
     }
     pos = reader.read_pos;
   }
@@ -214,7 +266,7 @@ int read_incoming(client *cl) {
   if (read_body(cl, &reader) < 0)
     return -1;
 
-  want_close(cl);
+  apply_connection_header(cl);
 
   cl->want_read = 0;
   cl->want_write = 1;
@@ -222,83 +274,81 @@ int read_incoming(client *cl) {
   return 0;
 }
 
-void write_response(client *cl) {
-  string_pool handler;
-  string_pool_init(&handler, 1024);
+static int parse_request_line(const char *request, request_line *line) {
+  int space_index1 = index(request, ' ');
+  if (space_index1 < 0)
+    return -1;
 
+  int space_index2 = index(request + space_index1 + 1, ' ');
+  if (space_index2 < 0)
+    return -1;
+
+  line->method_len = space_index1;
+  line->path_len = space_index2;
+  return 0;
+}
+
+static void set_route_path(client *cl, const char *file) {
+  if (strcmp(file, "/") == 0)
+    string_n_copy("/index.html", cl->path, CLIENT_MAX_PATH);
+  else
+    string_n_copy(file[0] == '/' ? file + 1 : file, cl->path, CLIENT_MAX_PATH);
+}
+
+static void route_request(client *cl, const char *method, const char *file) {
   int client = cl->fd;
 
-  const char *request = hashmap_get(&cl->headers, "REQUEST");
+  logf("request type(%s) to %s\n", method, file);
 
-  if (request == 0) {
-    // writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
-    write_headers(client, INTERNAL_ERROR);
-    string_pool_destroy(&handler);
-    return;
-  }
-
-  int space_index1 = index(request, ' ');
-  int space_index2 = index(request + space_index1 + 1, ' ');
-
-  if (space_index1 < 0 || space_index2 < 0) {
-    write_headers(client, UNKNOWN);
-    string_pool_destroy(&handler);
-    return;
-  }
-  char type[space_index1 + 1];
-  char file[space_index2 + 1];
-
-  substr(request, type, 0, space_index1);
-  substr(request, file, space_index1 + 1, space_index2);
-
-  type[space_index1] = '\0';
-  file[space_index2] = '\0';
-
-  logf("request type(%s) to %s\n", type, file);
-
-  if (strcmp(file, "..") == 0) {
+  if (has_parent_segment(file)) {
     write_headers(client, FORBIDDEN);
-    string_pool_destroy(&handler);
+    cl->want_close = 1;
     return;
   }
 
-  if (strcmp(file, "/") == 0) {
-    string_n_copy("/index.html", cl->path, CLIENT_MAX_PATH);
+  set_route_path(cl, file);
+
+  if (strcmp(method, "GET") == 0) {
+    handle_get(cl);
+  } else if (strcmp(method, "POST") == 0) {
+    handle_post(client, &cl->headers, cl->path);
+    cl->want_close = 1;
   } else {
-    string_n_copy(file[0] == '/' ? file + 1 : file, cl->path, CLIENT_MAX_PATH);
+    write_headers(client, UNKNOWN);
+    cl->want_close = 1;
+  }
+}
+
+void write_response(client *cl) {
+  int client = cl->fd;
+  const char *request = hashmap_get(&cl->headers, "REQUEST");
+  request_line line;
+
+  if (request == 0 || parse_request_line(request, &line) < 0) {
+    write_headers(client, request ? UNKNOWN : INTERNAL_ERROR);
+    cl->want_close = 1;
+    return;
   }
 
-  if (strncmp(type, "GET", 3) == 0) {
-    get(cl);
-  } else if (strcmp(type, "POST") == 0) {
-    post(client, &cl->headers, cl->path);
-  }
+  char method[line.method_len + 1];
+  char file[line.path_len + 1];
 
-  string_pool_destroy(&handler);
+  substr(request, method, 0, line.method_len);
+  substr(request, file, line.method_len + 1, line.path_len);
 
-  want_close(cl);
+  method[line.method_len] = '\0';
+  file[line.path_len] = '\0';
+
+  route_request(cl, method, file);
+
+  apply_connection_header(cl);
   cl->want_write = 0;
 }
 
 void write_headers(int client, enum request_status status) {
-  // El OK sin doble retorno ya que se espera haya mas datos
-  // luego de recibir esta cabecera
-  switch (status) {
-  case OK:
-    writef(client, "HTTP/1.1 200 OK\r\n");
-    break;
-  case INTERNAL_ERROR:
-    writef(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
-    break;
-  case FORBIDDEN:
-    writef(client, "HTTP/1.1 403 Forbidden\r\n\r\n");
-    break;
-  case NOT_FOUND:
-    writef(client, "HTTP/1.1 404 Not Found\r\n\r\n");
-    break;
-  default:
-    writef(client, "HTTP/1.1 400 Bad Request\r\n\r\n");
-  }
+  write_status_line(client, status);
+  if (status != OK)
+    write(client, "\r\n", 2);
 }
 
 void chunk(int *client, int *fd, hash_map *header, const char *path,
@@ -333,7 +383,7 @@ void chunk(int *client, int *fd, hash_map *header, const char *path,
     writef(*client, "0\r\n\r\n");
 }
 
-void get(client *cl) {
+static void handle_get(client *cl) {
   string_pool handler;
   string_pool_init(&handler, 1024);
 
@@ -407,6 +457,7 @@ void get(client *cl) {
       chunk(&client, &fd, &cl->headers, cl->path, route);
       string_pool_destroy(&handler);
       close(fd);
+      cl->want_close = 1;
       return;
     }
   }
@@ -427,10 +478,7 @@ void get(client *cl) {
   string_pool_append(&handler, "Connection: close\r\n\r\n", 0);
   //  string_pool_append(&handler, "\r\n", 0);
 
-  // Se restan 2 porque:
-  // 1 -> offset es size+1
-  // 2 -> size incluye \0 que no se envía en cabeceras
-  write(client, handler.base, handler.offset - 2);
+  write(client, handler.base, handler.offset - 1);
 
   long off = 0;
   long remaining = sb.st_size;
@@ -447,9 +495,10 @@ void get(client *cl) {
 
   string_pool_destroy(&handler);
   close(fd);
+  cl->want_close = 1;
 }
 
-void post(int client, hash_map *headers, const char *path) {
+static void handle_post(int client, hash_map *headers, const char *path) {
   if (strcmp(path, "database") == 0) {
     const char *body = hashmap_get(headers, "BODY");
     char key[128];

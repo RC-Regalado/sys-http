@@ -58,7 +58,9 @@ bin/
 build/
 *.gdb
 .workspace/*
-.workspace
+!.workspace/
+!.workspace/collections/
+!.workspace/collections/*.lua
 src/templates/
 
 .cache/
@@ -71,3 +73,5 @@ bck/
 
 *.db
 *.wal
+
+.project-envrc

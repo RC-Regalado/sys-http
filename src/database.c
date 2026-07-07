@@ -29,7 +29,7 @@ int database_set(const char *key, const char *payload,
 
   char *namespace_name = "database";
   char *content_type = "json";
-  db_record_meta_t meta = {0};
+  db_record_meta_t meta;
   db_t db;
 
   if (db_open(&db, "./data.wal", 0)) {
@@ -54,9 +54,16 @@ extern int database_route(client *cl, const char *id) {
   json_object obj;
   db_t db;
 
-  db_selector_t selector = {0};
+  db_selector_t selector;
   int result = 0;
   int lookup = 0;
+
+  selector.key = 0;
+  selector.klen = 0;
+  selector.namespace_name = 0;
+  selector.content_type = 0;
+  selector.flags_mask = 0;
+  selector.flags_value = 0;
 
   if (string_pool_init(&json_storage, 1024) < 0 ||
       string_pool_init(&response, 2048) < 0) {
