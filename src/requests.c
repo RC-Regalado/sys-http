@@ -387,6 +387,27 @@ static void handle_get(client *cl) {
   string_pool handler;
   string_pool_init(&handler, 1024);
 
+  if (starts_with(cl->path, "database/namespace/")) {
+    const char *namespace_name = cl->path + 19;
+    if (*namespace_name == '\0') {
+      write_headers(cl->fd, NOT_FOUND);
+      string_pool_destroy(&handler);
+      cl->want_close = 1;
+      return;
+    }
+    database_list(cl, namespace_name);
+    string_pool_destroy(&handler);
+    cl->want_close = 1;
+    return;
+  }
+
+  if (strcmp(cl->path, "database/notes") == 0) {
+    database_list(cl, "notes");
+    string_pool_destroy(&handler);
+    cl->want_close = 1;
+    return;
+  }
+
   if (starts_with(cl->path, "database/")) {
     const char *id = cl->path + 9;
     if (*id == '\0') {
@@ -499,6 +520,25 @@ static void handle_get(client *cl) {
 }
 
 static void handle_post(int client, hash_map *headers, const char *path) {
+  if (strcmp(path, "database/notes") == 0) {
+    const char *body = hashmap_get(headers, "BODY");
+    string_pool key;
+
+    if (!body || *body == '\0' || string_pool_init(&key, 64) < 0) {
+      write_json_reply(client, UNKNOWN, 0, 0);
+      return;
+    }
+
+    int saved = database_add_note(body, len(body), &key);
+    if (saved == 0)
+      write_json_reply(client, OK, key.base, 1);
+    else
+      write_json_reply(client, INTERNAL_ERROR, 0, 0);
+
+    string_pool_destroy(&key);
+    return;
+  }
+
   if (strcmp(path, "database") == 0) {
     const char *body = hashmap_get(headers, "BODY");
     char key[128];

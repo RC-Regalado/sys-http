@@ -114,6 +114,21 @@ static int append_escaped_string(string_pool *pool, const char *value) {
         return -1;
       continue;
     }
+    if (c == '\n') {
+      if (append_text(pool, "\\n") < 0)
+        return -1;
+      continue;
+    }
+    if (c == '\r') {
+      if (append_text(pool, "\\r") < 0)
+        return -1;
+      continue;
+    }
+    if (c == '\t') {
+      if (append_text(pool, "\\t") < 0)
+        return -1;
+      continue;
+    }
 
     char one[2];
     one[0] = c;
@@ -172,4 +187,37 @@ int json_serialize(const json_object *obj, string_pool *out) {
   }
 
   return append_text(out, "}");
+}
+
+int json_array_init(json_array *arr, string_pool *storage) {
+  if (!arr || !storage)
+    return -1;
+
+  arr->storage = storage;
+  arr->count = 0;
+  return 0;
+}
+
+int json_array_add_object(json_array *arr, const char *serialized_object) {
+  if (!arr || !arr->storage || !serialized_object)
+    return -1;
+
+  if (arr->count > 0 && append_text(arr->storage, ",") < 0)
+    return -1;
+  if (append_text(arr->storage, serialized_object) < 0)
+    return -1;
+
+  arr->count++;
+  return 0;
+}
+
+int json_array_serialize(const json_array *arr, string_pool *out) {
+  if (!arr || !out)
+    return -1;
+
+  if (append_text(out, "[") < 0)
+    return -1;
+  if (arr->count > 0 && append_text(out, arr->storage->base) < 0)
+    return -1;
+  return append_text(out, "]");
 }

@@ -25,6 +25,7 @@ request() {
   local method="$1"
   local path="$2"
   local body="${3:-}"
+  local content_type="${4:-application/json}"
   local out status rc
   out="$(mktemp)"
 
@@ -33,7 +34,7 @@ request() {
     status="$(curl -sS -o "${out}" -w '%{http_code}' -X "${method}" \
       --path-as-is \
       --connect-timeout 1 --max-time 3 \
-      -H 'Content-Type: application/json' \
+      -H "Content-Type: ${content_type}" \
       --data-binary "${body}" \
       "${BASE_URL}${path}")"
     rc=$?
@@ -62,9 +63,10 @@ assert_status() {
   local method="$3"
   local path="$4"
   local body="${5:-}"
+  local content_type="${6:-application/json}"
   local result status file
 
-  result="$(request "${method}" "${path}" "${body}")"
+  result="$(request "${method}" "${path}" "${body}" "${content_type}")"
   status="${result%% *}"
   file="${result#* }"
 
@@ -91,6 +93,13 @@ assert_body_has() {
 trap cleanup EXIT
 
 make
+NOTE_BODY=$'# Smoke note\n\nbody'
+
+# Arrancar desde una base de datos totalmente nueva: un data.wal/base.db
+# preexistente puede enmascarar bugs que solo aparecen en el primer arranque
+# (ver docs/Architecture.md, "Riesgo Critico: Interposicion de Simbolos").
+rm -f data.wal base.db
+rm -rf blobs
 
 LD_LIBRARY_PATH="./bin:${LD_LIBRARY_PATH:-}" ./bin/server >"${SERVER_LOG}" 2>&1 &
 SERVER_PID="$!"
@@ -114,5 +123,17 @@ assert_status "GET /database/smoke" 200 GET /database/smoke
 assert_body_has "GET /database/smoke response" '"found":true'
 assert_status "POST /database without key" 400 POST /database '{"value":"missing-key"}'
 assert_body_has "POST invalid response" '"ok":false'
+assert_status "GET /database/namespace/database" 200 GET /database/namespace/database
+assert_body_has "GET namespace list response" '"count"'
+assert_body_has "GET namespace list has smoke" '"id":"smoke"'
+assert_status "GET /database/namespace/does-not-exist" 200 GET /database/namespace/does-not-exist
+assert_body_has "GET empty namespace response" '"items":[]'
+assert_status "POST /database/notes" 200 POST /database/notes "${NOTE_BODY}" text/markdown
+assert_body_has "POST /database/notes response" '"ok":true'
+assert_status "GET /database/notes" 200 GET /database/notes
+assert_body_has "GET /database/notes response" '"namespace":"notes"'
+assert_body_has "GET /database/notes has markdown" '# Smoke note'
+assert_status "GET /database/namespace/notes" 200 GET /database/namespace/notes
+assert_body_has "GET /database/namespace/notes response" '"namespace":"notes"'
 
 printf 'http smoke: ok\n'

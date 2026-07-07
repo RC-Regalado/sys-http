@@ -10,7 +10,9 @@ Objetivo: eliminar errores que pueden causar perdida de datos o comportamiento H
 
 Tareas:
 
-* llamar `db_close` en `database_set` y `database_route`
+* ~~llamar `db_close` en `database_set` y `database_route`~~ Hecho.
+* ~~corregir interposicion de simbolos `open`/`close`/`read`/`write` entre `bin/server` y `libmicrodb.so`~~ Hecho: `-fvisibility=hidden` en el `Makefile`. Ver `docs/Architecture.md` ("Riesgo Critico: Interposicion de Simbolos"). Este bug rompia `db_open` (y por tanto todo `POST`/`GET /database*`) en cualquier base de datos nueva sin `base.db` previo.
+* ~~evitar que listar/contar por namespace cargue cada blob completo a memoria~~ Hecho: `db_selector_t.skip_blob` en `microdb`. Ver `docs/MicroDB-Integration.md`.
 * validar `:` en `parse_headers`
 * corregir bloqueo de path traversal para segmentos `..`
 * normalizar `write_headers` para que todos los status tengan el mismo contrato
@@ -66,7 +68,8 @@ Objetivo: estabilizar contrato HTTP sobre `microdb`.
 
 Tareas:
 
-* usar namespace explicito en lectura
+* ~~usar namespace explicito en lectura~~ Hecho en `database_route` (`namespace_name = "database"`).
+* ~~agregar conector de listado por namespace~~ Hecho: `database_list` + `GET /database/namespace/<nombre>` (base reusable para `files`, `notes`, `media`).
 * documentar formato de registros
 * agregar funciones para `files`, `notes` y `media`
 * crear herramienta de migracion desde sqlite del proyecto `old`
@@ -79,7 +82,7 @@ Objetivo: recuperar capacidades historicas sin portar la arquitectura vieja.
 Funciones a migrar:
 
 * `/music`: listar `music` y `video`
-* `/file` o `/files/<id>`: servir blobs subidos
+* `/file` o `/files/<id>`: servir blobs subidos — diseno ya analizado en `docs/MicroDB-Integration.md` (seccion "Diseno de Operaciones de Archivo"): `POST /files/<nombre>` (crear), `GET /files` (listar, reusa `database_list`), `GET /files/<id>` (descargar). Pendiente de implementar.
 * `/notes`: listar, crear y leer notas
 * uploads multipart
 

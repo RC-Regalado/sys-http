@@ -19,6 +19,7 @@ El servidor soporta:
 * envio de archivos por `sendfile`
 * streaming chunked para `.mp4`
 * `GET /database/<id>` mediante `microdb`
+* `GET /database/namespace/<nombre>` lista todos los registros de un namespace
 * `POST /database` con JSON minimo y campo obligatorio `"key"`
 
 No soporta todavia:
@@ -70,7 +71,7 @@ Los archivos estaticos se sirven desde `templates/`. La respuesta normal usa `Co
 
 ### Base de Datos
 
-`database.c` adapta HTTP a `microdb`. Abre `./data.wal`, escribe registros JSON en namespace `database` y lee registros por clave.
+`database.c` adapta HTTP a `microdb`. Abre `./data.wal` mediante un `database_open` local, escribe registros JSON en namespace `database`, lee registros por clave y lista registros por namespace (`database_list`). Cierra siempre `db_t` con `db_close`.
 
 `microdb` se compila como libreria compartida `libmicrodb.so` y expone una API en `microdb/src/include/db.h`.
 
@@ -103,9 +104,18 @@ flags = DB_RECORD_JSON
 * No agregar librerias externas.
 * Mantener el valor educativo del codigo.
 
+## Riesgo Critico: Interposicion de Simbolos con microdb (Resuelto)
+
+`src/io.c` define, con visibilidad global por defecto, funciones llamadas igual que funciones de libc: `open`, `close`, `read`, `write` (wrappers delgados sobre `sys_open`/`sys_close`/etc.). `bin/server` se enlaza dinamicamente contra `libmicrodb.so` (que a su vez depende de `libc.so.6` normal), y por reglas estandar de resolucion de simbolos ELF, los simbolos globales del ejecutable principal tienen prioridad sobre los de las bibliotecas de las que depende. Esto significa que **toda llamada a `open`/`close`/`read`/`write` hecha desde dentro de `libmicrodb.so` terminaba interceptada por las implementaciones crudas de `src/io.c`**, no por las de glibc.
+
+El sintoma: la version cruda de `open` (`sys_open`) devuelve el convenio de syscall de Linux (negativo = `-errno`, ej. `-2` para `ENOENT`), mientras que microdb esperaba el convenio POSIX de glibc (`-1` + variable `errno`). El chequeo `if (errno == ENOENT) return 0;` en `mmap_load_into_ht` (`microdb/src/mmap.c`) nunca se cumplia, así que `db_open` fallaba (`return -6`) en **cualquier base de datos realmente nueva** (sin `base.db` previo) — es decir, cualquier `POST` a `/database` o `/database/notes` fallaba con `500` la primera vez que se ejecutaba el servidor en un directorio limpio. El bug estaba enmascarado en desarrollo porque `data.wal`/`base.db` ya existian de sesiones previas.
+
+Ademas de `mmap_load_into_ht`, esta interposicion afectaba potencialmente **cualquier** operacion de archivo interna de microdb (WAL, blobs, paginas), ya que todas pasan por `open`/`read`/`write`/`close`. Las firmas de las versiones de `src/io.c` tampoco coinciden con POSIX (ej. `read(long, char*, unsigned short)` limita la longitud a 16 bits; `close(int)` no retorna valor, mientras que microdb a veces revisa `close(fd) != 0`), lo cual podia producir fallas o truncamientos silenciosos adicionales.
+
+**Fix aplicado**: se agrego `-fvisibility=hidden` a `FLAGS` en el `Makefile` raiz. Esto oculta del *dynamic symbol table* de `bin/server` los simbolos que no necesitan ser vistos fuera del propio ejecutable (incluyendo `open`/`close`/`read`/`write`), eliminando la interposicion. Verificado con `nm -D bin/server` (ya no lista esos simbolos) y con pruebas end-to-end sobre una base de datos recien creada (`rm -f data.wal base.db && rm -rf blobs` antes de arrancar el servidor).
+
 ## Fallos Internos Relevantes
 
-* `database.c` abre `db_t` pero no llama `db_close`, lo que puede perder sincronizacion, fd y memoria interna.
 * `requests.c` mezcla parsing, routing y handlers; esto vuelve fragil cualquier cambio HTTP.
 * `parse_headers` no valida que exista `:` antes de calcular longitudes.
 * El bloqueo de path traversal solo compara `file == ".."` y no cubre rutas como `a/../b`.
@@ -119,7 +129,7 @@ flags = DB_RECORD_JSON
 ## Mejoras Prioritarias
 
 1. Separar `requests.c` en parser HTTP, router y handlers.
-2. Corregir ownership de `db_t` con `db_close` en todos los caminos.
+2. ~~Corregir ownership de `db_t` con `db_close` en todos los caminos.~~ Hecho.
 3. Consolidar generacion de respuestas HTTP en una funcion unica.
 4. Endurecer validacion de paths antes de tocar archivos.
 5. Definir contrato estable para `microdb` desde HTTP.

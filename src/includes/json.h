@@ -36,4 +36,17 @@ int json_add_null(json_object *obj, const char *key);
 const json_field *json_get(const json_object *obj, const char *key);
 int json_serialize(const json_object *obj, string_pool *out);
 
+// json_array acumula objetos ya serializados (texto crudo) separados por
+// coma. No es un tipo de valor dentro de json_object; se arma aparte y se
+// inserta en un objeto contenedor con json_add_object (mismo mecanismo que
+// ya se usa para incrustar JSON crudo).
+typedef struct {
+  string_pool *storage;
+  int count;
+} json_array;
+
+int json_array_init(json_array *arr, string_pool *storage);
+int json_array_add_object(json_array *arr, const char *serialized_object);
+int json_array_serialize(const json_array *arr, string_pool *out);
+
 #endif // JSON_H_

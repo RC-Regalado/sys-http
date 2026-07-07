@@ -120,6 +120,7 @@ Funciones principales:
 
 * `database_set`
 * `database_route`
+* `database_list`
 
 Dependencias internas:
 
@@ -129,10 +130,9 @@ Dependencias internas:
 
 Riesgos:
 
-* no llama `db_close`
-* usa ruta fija `./data.wal`
-* no valida namespace en lectura
+* usa ruta fija `./data.wal` (centralizada en `database_open` local)
 * el valor JSON se reinyecta como objeto sin validar que sea JSON valido
+* `database_list` carga en memoria el valor completo de cada registro del namespace (ver `docs/MicroDB-Integration.md`)
 
 ## json.c
 
@@ -146,12 +146,16 @@ Funciones principales:
 * `json_add_bool`
 * `json_add_object`
 * `json_serialize`
+* `json_array_init`
+* `json_array_add_object`
+* `json_array_serialize`
 
 Riesgos:
 
 * no es parser JSON completo
 * limite fijo `JSON_MAX_FIELDS`
 * `json_add_object` inserta texto crudo
+* `json_array` no es un tipo de campo dentro de `json_object`: se serializa aparte y se incrusta con `json_add_object`, quien llama debe mantener vivo el `string_pool` del array hasta serializar
 
 ## str.c
 
@@ -191,6 +195,7 @@ Riesgos:
 * `format` no cubre todos los formatos C
 * `readline_stream` mezcla lectura bloqueante/no bloqueante
 * lectura de lineas largas falla con `-2`
+* `open`/`close`/`read`/`write` tienen visibilidad global y coinciden en nombre con libc: sin `-fvisibility=hidden` en el `Makefile` (ya presente), interponen sobre las llamadas equivalentes dentro de `libmicrodb.so` — ver `docs/Architecture.md` ("Riesgo Critico: Interposicion de Simbolos con microdb"). No renombrar estas funciones ni quitar la flag sin entender ese riesgo.
 
 ## memory.c
 

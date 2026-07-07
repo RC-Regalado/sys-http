@@ -84,6 +84,43 @@ Respuesta esperada si existe:
 {"found":true,"value":{"key":"uno"},"json":true,"id":"uno"}
 ```
 
+## GET listado por namespace
+
+Ruta:
+
+```http
+GET /database/namespace/<nombre> HTTP/1.1
+```
+
+Comportamiento:
+
+* usa el conector `database_list` (`src/database.c`), que arma un `db_selector_t` solo con `namespace_name` (sin `key`)
+* `microdb` recorre su `namespace_index` interno y devuelve todos los registros de ese namespace
+* siempre responde `200`, incluso si el namespace no tiene registros (una lista vacia no es error)
+* no expone el body crudo del registro sin decodificar; cada item incluye `id`, `json` y `value`
+
+Ejemplo con datos:
+
+```bash
+curl -v http://localhost:5050/database/namespace/database
+```
+
+```json
+{"count":2,"namespace":"database","items":[{"id":"uno","json":true,"value":{"key":"uno","v":1}},{"id":"dos","json":true,"value":{"key":"dos","v":2}}]}
+```
+
+Ejemplo sin datos:
+
+```bash
+curl -v http://localhost:5050/database/namespace/no-existe
+```
+
+```json
+{"count":0,"namespace":"no-existe","items":[]}
+```
+
+Si el segmento `<nombre>` viene vacio (`GET /database/namespace/`), responde `404`.
+
 ## POST base de datos
 
 Ruta:
@@ -157,5 +194,6 @@ curl -v http://localhost:5050/no-existe
 curl -v http://localhost:5050/../etc/passwd
 curl -v -X POST http://localhost:5050/database -d '{"key":"uno","v":1}'
 curl -v http://localhost:5050/database/uno
+curl -v http://localhost:5050/database/namespace/database
 ```
 

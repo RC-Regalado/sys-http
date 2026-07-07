@@ -14,7 +14,7 @@ El proyecto evita `malloc` de libc en el servidor principal. La memoria se admin
 [sysmap_header][payload]
 ```
 
-El tamano real se alinea a 4096 bytes. Esto simplifica `munmap`, pero desperdicia memoria para objetos pequenos.
+El tamano real se alinea a 4096 bytes. Esto simplifica `munmap`, pero desperdicia memoria para objetos pequeños.
 
 Ownership:
 
