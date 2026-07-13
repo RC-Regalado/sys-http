@@ -77,6 +77,8 @@ bck/
 .project-envrc
 
 http_handler
+/http_handler/
 http_handler/*
 frontend
+/frontend/
 frontend/*
