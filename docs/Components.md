@@ -84,6 +84,7 @@ Riesgos:
 * `CLIENT_BUF_SIZE` limita headers y body pequenos
 * el reset no se usa de forma completa para keep-alive real
 * `client_destroy` cierra el fd, por tanto otros modulos no deben cerrarlo otra vez
+* `client.query` (parametros de query string, ver `query.c`) duplica el costo fijo de un `hash_map` completo por cliente, ademas del de `headers`
 
 ## requests.c
 
@@ -110,6 +111,33 @@ Ejemplos:
 ```bash
 curl -v http://localhost:5050/index.html
 curl -v -X POST http://localhost:5050/database -d '{"key":"uno","v":1}'
+```
+
+## query.c
+
+Proposito: separar el query string del path en el punto de parseo (`write_response`, antes de `route_request`) y exponerlo como `hash_map` en `client.query`, con el mismo mecanismo que ya usa `client.headers`.
+
+Funciones principales:
+
+* `query_split` — corta `raw` en el primer `?` (in-place) y devuelve el resto, o `0` si no hay `?`.
+* `query_parse` — separa por `&`, cada segmento por el primer `=`, decodifica percent-encoding y `+`, y guarda cada par en el `hash_map` recibido usando `pool` para las copias.
+
+Dependencias internas:
+
+* `hashmap.h`
+* `str.h`
+
+Riesgos:
+
+* claves/valores decodificados se acotan a un buffer de pila de 256 bytes (`QUERY_TOKEN_CAP`); valores mas largos se truncan silenciosamente
+* `%` seguido de menos de 2 hex digits validos se copia literal en vez de fallar — tolerante, no estricto
+* segmentos vacios (`&&`, `&` final) se ignoran sin aviso
+
+Ejemplos:
+
+```bash
+curl -v "http://localhost:5050/index.html?x=1"
+curl -v "http://localhost:5050/database/smoke?debug=1&trace"
 ```
 
 ## database.c

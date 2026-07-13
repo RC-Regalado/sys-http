@@ -160,6 +160,21 @@ Limitaciones:
 * `"key"` debe ser string
 * maximo efectivo depende de `string_pool` y memoria disponible
 
+## Query String
+
+El query string se separa del path en `write_response` (`src/requests.c`), antes de despachar la ruta, usando `query_split`/`query_parse` (`src/query.c`). Antes de esto, `?` en la URL rompia el ruteo: `GET /index.html?x=1` intentaba abrir el archivo `templates/index.html?x=1` (`404`), y `POST /database?debug=1` no matcheaba el `strcmp` de ruta. Esto ya esta corregido: el path que llega a los handlers (`cl->path`) siempre esta limpio de query string.
+
+Los pares clave/valor quedan en `cl->query` (`hash_map`, mismo tipo que `cl->headers` pero namespace separado), decodificados (`%XX` y `+` como espacio). Ningun handler actual lee `cl->query` todavia — queda disponible para cuando se necesite (ej. paginacion en `/database/namespace/<n>`).
+
+Ejemplo:
+
+```bash
+curl -v "http://localhost:5050/index.html?x=1"
+curl -v "http://localhost:5050/database/smoke?debug=1&trace"
+```
+
+Ambos responden igual que sin el query string (`200`), en vez del `404`/mismatch de antes.
+
 ## Headers
 
 Headers de request soportados de forma practica:
@@ -182,7 +197,7 @@ Headers de respuesta usados:
 * metodos distintos de `GET` y `POST` no retornan `405`.
 * no se valida version HTTP.
 * no se validan headers duplicados.
-* no se soporta query string.
+* ~~no se soporta query string.~~ Corregido: ver seccion "Query String" arriba.
 * no hay limite formal de tamano para headers.
 
 ## Pruebas Manuales
@@ -195,5 +210,6 @@ curl -v http://localhost:5050/../etc/passwd
 curl -v -X POST http://localhost:5050/database -d '{"key":"uno","v":1}'
 curl -v http://localhost:5050/database/uno
 curl -v http://localhost:5050/database/namespace/database
+curl -v "http://localhost:5050/index.html?x=1"
 ```
 

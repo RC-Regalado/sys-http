@@ -28,9 +28,10 @@ No soporta todavia:
 * keep-alive real
 * routing formal
 * multipart uploads
-* query string
 * validacion JSON completa
 * concurrencia robusta sobre escritura de base de datos
+
+Query string ya soportado (`query.c`, ver `docs/HTTP.md`): `cl->query` expone los pares clave/valor decodificados; ningun handler los consume todavia, pero el path que llega a los handlers ya no se rompe con `?` en la URL.
 
 ## Flujo General
 

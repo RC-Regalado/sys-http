@@ -55,6 +55,7 @@ Objetivo: responder correctamente a casos comunes.
 
 Tareas:
 
+* ~~soportar query string sin romper el ruteo~~ Hecho: `src/query.c` + `cl->query`. Ver `docs/HTTP.md` ("Query String").
 * validar version HTTP
 * responder `405 Method Not Allowed`
 * responder `411 Length Required` cuando POST requiere body
