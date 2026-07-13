@@ -136,5 +136,23 @@ return {
       url = "{{base_url}}/database/namespace/notes",
       headers = {},
     },
+    {
+      id = "index-query",
+      folder = "static",
+      name = "GET /index.html con query string",
+      protocol = "rest",
+      method = "GET",
+      url = "{{base_url}}/index.html?x=1",
+      headers = {},
+    },
+    {
+      id = "database-get-query",
+      folder = "database",
+      name = "GET /database/smoke con query string",
+      protocol = "rest",
+      method = "GET",
+      url = "{{base_url}}/database/smoke?debug=1&trace",
+      headers = {},
+    },
   },
 }
