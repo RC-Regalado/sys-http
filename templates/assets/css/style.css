@@ -1,0 +1,379 @@
+/* ===========================
+   Material Dark Theme
+   =========================== */
+:root {
+  /* === Colores base === */
+  --color-bg-primary: #121212;      /* Fondo principal */
+  --color-bg-secondary: #1E1E1E;    /* Fondo secundario */
+  --color-surface: #2C2C2C;         /* Superficie (cards, paneles) */
+
+  /* === Texto === */
+  --color-text-primary: #E0E0E0;
+  --color-text-secondary: #B0B0B0;
+
+  /* === Acento (Turquesa Material) === */
+  --color-accent: #03DAC5;
+  --color-accent-contrast: #000000;
+
+  /* === Feedback === */
+  --color-success: #4CAF50;
+  --color-warning: #FFB300;
+  --color-error: #CF6679;
+  --color-info: #2196F3;
+
+  /* === Bordes y sombras === */
+  --border-color: #333;
+  --shadow-elevation: 0 2px 6px rgba(0, 0, 0, 0.4);
+
+  /* === Transiciones === */
+  --transition-fast: 0.2s ease;
+  --transition-slow: 0.4s ease;
+}
+
+/* Tema claro opcional (puedes activar dinámicamente con JS) */
+:root[data-theme="light"] {
+  --color-bg-primary: #F5F5F5;
+  --color-bg-secondary: #FFFFFF;
+  --color-surface: #FFFFFF;
+
+  --color-text-primary: #202020;
+  --color-text-secondary: #555555;
+
+  --color-accent: #6200EE;
+  --color-accent-contrast: #FFFFFF;
+
+  --border-color: #DDD;
+  --shadow-elevation: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+/* Transiciones suaves entre temas */
+* {
+  transition: background-color var(--transition-slow),
+              color var(--transition-slow),
+              border-color var(--transition-slow);
+}
+
+/* ===========================
+   Layout General
+   =========================== */
+
+/* Reset básico */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Segoe UI", sans-serif;
+}
+
+/* Layout general */
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 240px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--shadow-elevation);
+}
+
+#sidebar nav a {
+  display: block;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin: 5px;
+  transition: background-color var(--transition-fast),
+              color var(--transition-fast);
+}
+
+#sidebar nav a:hover {
+  background-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+#sidebar nav a.active {
+  background-color: var(--color-surface);
+  color: var(--color-accent);
+}
+
+/* Header */
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#header {
+  background: var(--color-bg-secondary);
+  padding: 1rem 2rem;
+  box-shadow: var(--shadow-elevation);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Contenido dinámico */
+#content {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out;
+}
+
+#content.visible {
+  opacity: 1;
+}
+
+/* ===========================
+   Dashboard Layout
+   =========================== */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.dashboard h2 {
+  font-size: 1.4rem;
+  color: var(--color-text-primary);
+  margin-bottom: 0.5rem;
+}
+
+/* Cuadrícula de tarjetas */
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+}
+
+.card {
+  background: var(--color-surface);
+  box-shadow: var(--shadow-elevation);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: transform var(--transition-fast),
+              box-shadow var(--transition-fast),
+              border-color var(--transition-fast);
+  border: 1px solid var(--border-color);
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+}
+
+.card h3 {
+  font-size: 1rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.card .value {
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--color-text-primary);
+}
+
+.card small {
+  color: var(--color-text-secondary);
+}
+
+.card.active {
+  border: 1px solid var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+/* Tabla */
+.table-card {
+  overflow-x: auto;
+}
+
+.table-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  color: var(--color-text-primary);
+}
+
+.table-card th,
+.table-card td {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.table-card th {
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.table-card tr:hover td {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* ===== Formularios ===== */
+
+.form-card {
+  background: var(--color-surface);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-elevation);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+}
+
+.form-group {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+input, select {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+input:focus, select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(3, 218, 197, 0.3);
+}
+
+/* Botones */
+.btn-accent {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  border: none;
+  border-radius: 6px;
+  padding: 0.8rem 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-end;
+  transition: background-color var(--transition-fast);
+}
+
+.btn-accent:hover {
+  background: #00bfa5; /* tono más oscuro del acento */
+}
+
+/* Mensaje temporal */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  color: var(--color-text-primary);
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  box-shadow: var(--shadow-elevation);
+  opacity: 0;
+  transform: translateY(20px);
+  animation: fadeInOut 3s forwards;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(20px); }
+  10%, 90% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(20px); }
+}
+
+/* Gráficas */
+canvas {
+  display: block;
+  width: 100%;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+#btnActualizar {
+  margin-top: 1rem;
+}
+
+/* ===== Tabla de hábitos ===== */
+
+.tabla-habitos {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--color-text-primary);
+  font-size: 0.95rem;
+}
+
+.tabla-habitos th,
+.tabla-habitos td {
+  padding: 0.6rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tabla-habitos th:first-child,
+.tabla-habitos td:first-child {
+  text-align: left;
+}
+
+.tabla-habitos thead th {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.tabla-habitos input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* ===== Formulario de nuevo hábito ===== */
+
+.form-nuevo-habito {
+  margin-top: 1.5rem;
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.form-nuevo-habito input {
+  flex: 1;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+}
+
+.form-nuevo-habito input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(3,218,197,0.3);
+}
+

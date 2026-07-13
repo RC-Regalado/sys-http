@@ -1,0 +1,35 @@
+<section class="finanzas">
+  <h2>Registrar transacción</h2>
+  <form id="formFinanza" class="form-card">
+    <div class="form-group">
+      <label for="tipo">Tipo</label>
+      <select id="tipo" name="tipo" required>
+        <option value="Ingreso">Ingreso</option>
+        <option value="Gasto">Gasto</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="descripcion">Descripción</label>
+      <input type="text" id="descripcion" name="descripcion" placeholder="Ej. Compra de café" required>
+    </div>
+
+    <div class="form-group">
+      <label for="monto">Monto ($)</label>
+      <input type="number" id="monto" name="monto" step="0.01" min="0" required>
+    </div>
+
+    <button type="submit" class="btn-accent">Guardar</button>
+  </form>
+
+  <div class="card table-card">
+    <h3>Transacciones recientes</h3>
+    <table id="tablaFinanzas">
+      <thead>
+        <tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Monto</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+

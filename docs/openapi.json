@@ -1,0 +1,266 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "sys-http notes/files API",
+    "version": "0.1.0",
+    "description": "Spec basada en las rutas actualmente implementadas en src/requests.c."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5050"
+    }
+  ],
+  "tags": [
+    { "name": "notes" },
+    { "name": "files" },
+    { "name": "database" }
+  ],
+  "paths": {
+    "/database/notes": {
+      "get": {
+        "tags": ["notes"],
+        "summary": "Listar notas",
+        "description": "Alias implementado para listar el namespace notes.",
+        "operationId": "listNotes",
+        "responses": {
+          "200": {
+            "description": "Notas almacenadas",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NamespaceList" },
+                "examples": {
+                  "notes": {
+                    "value": {
+                      "count": 1,
+                      "namespace": "notes",
+                      "items": [
+                        { "id": "note-1", "json": false, "value": "# Nota\\n\\nMarkdown" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["notes"],
+        "summary": "Crear nota markdown",
+        "description": "Recibe markdown crudo y lo guarda en microdb con namespace notes y content_type text/markdown.",
+        "operationId": "createNote",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/markdown": {
+              "schema": { "type": "string" },
+              "example": "# Nota\n\nContenido en markdown."
+            },
+            "text/plain": {
+              "schema": { "type": "string" },
+              "example": "# Nota\n\nContenido en markdown."
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Nota creada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WriteResponse" },
+                "example": { "ok": true, "key": "note-1" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body vacio o invalido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WriteResponse" },
+                "example": { "ok": false, "key": null }
+              }
+            }
+          },
+          "500": { "description": "Error interno" }
+        }
+      }
+    },
+    "/database/namespace/notes": {
+      "get": {
+        "tags": ["notes", "database"],
+        "summary": "Listar namespace notes",
+        "operationId": "listNotesNamespace",
+        "responses": {
+          "200": {
+            "description": "Notas almacenadas en el namespace notes",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NamespaceList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/database/namespace/files": {
+      "get": {
+        "tags": ["files", "database"],
+        "summary": "Listar namespace files",
+        "description": "Ruta generica ya implementada. Si no hay registros en files, responde count 0 e items vacio.",
+        "operationId": "listFilesNamespace",
+        "responses": {
+          "200": {
+            "description": "Registros almacenados en el namespace files",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NamespaceList" },
+                "example": { "count": 0, "namespace": "files", "items": [] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/database/namespace/{namespace}": {
+      "get": {
+        "tags": ["database"],
+        "summary": "Listar cualquier namespace",
+        "operationId": "listNamespace",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "examples": {
+              "notes": { "value": "notes" },
+              "files": { "value": "files" },
+              "database": { "value": "database" }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Registros del namespace; una lista vacia tambien es 200.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NamespaceList" }
+              }
+            }
+          },
+          "404": { "description": "Namespace path vacio" }
+        }
+      }
+    },
+    "/database/{id}": {
+      "get": {
+        "tags": ["database"],
+        "summary": "Leer registro individual del namespace database",
+        "description": "Implementado para namespace database. No lee notes/files por id en el estado actual.",
+        "operationId": "getDatabaseRecord",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "example": "smoke"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Registro encontrado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RecordResponse" }
+              }
+            }
+          },
+          "404": { "description": "Registro no encontrado" }
+        }
+      }
+    },
+    "/{filePath}": {
+      "get": {
+        "tags": ["files"],
+        "summary": "Servir archivo estatico individual",
+        "description": "Sirve archivos desde templates/. La ruta / se resuelve como /index.html. Bloquea segmentos ..",
+        "operationId": "getStaticFile",
+        "parameters": [
+          {
+            "name": "filePath",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "examples": {
+              "index": { "value": "index.html" },
+              "css": { "value": "styles.css" }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo encontrado",
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "text/css": { "schema": { "type": "string" } },
+              "application/javascript": { "schema": { "type": "string" } },
+              "image/png": { "schema": { "type": "string", "format": "binary" } },
+              "image/jpeg": { "schema": { "type": "string", "format": "binary" } },
+              "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "403": { "description": "Path traversal bloqueado" },
+          "404": { "description": "Archivo no encontrado" },
+          "500": { "description": "Error leyendo archivo" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WriteResponse": {
+        "type": "object",
+        "required": ["ok", "key"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "key": { "type": "string", "nullable": true }
+        }
+      },
+      "RecordResponse": {
+        "type": "object",
+        "properties": {
+          "found": { "type": "boolean" },
+          "id": { "type": "string" },
+          "json": { "type": "boolean" },
+          "value": {}
+        }
+      },
+      "NamespaceList": {
+        "type": "object",
+        "required": ["count", "namespace", "items"],
+        "properties": {
+          "count": { "type": "integer", "minimum": 0 },
+          "namespace": { "type": "string" },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/NamespaceItem" }
+          }
+        }
+      },
+      "NamespaceItem": {
+        "type": "object",
+        "required": ["id", "json", "value"],
+        "properties": {
+          "id": { "type": "string" },
+          "json": { "type": "boolean" },
+          "value": {}
+        }
+      }
+    }
+  },
+  "x-not-implemented-yet": {
+    "notesIndividualById": "No existe GET /database/notes/{id}; las notas se consumen por listado de namespace.",
+    "filesBlobApi": "No existe POST /files/{id} ni GET /files/{id}; request.c solo sirve archivos estaticos y lista namespaces via /database/namespace/files."
+  }
+}
