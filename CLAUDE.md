@@ -38,9 +38,10 @@ Flags de compilación (`-g -ffreestanding -fno-builtin -nostdlib -nostartfiles -
 | `server.c` | Init socket TCP, `bind`/`listen`, arranca `event_loop` | puerto fijo `5050` |
 | `epoll_loop.c` | Loop de eventos, `event_loop`, `get_client`, `new_client` | arreglo estático de clientes, manejo incompleto de errores |
 | `client.c` | Estado de conexión: `client`, `string_pool`, `hash_map` | `client_destroy` cierra el fd — nadie más debe cerrarlo |
-| `requests.c` | Parsing HTTP + routing + handlers (`read_incoming`, `write_response`, `write_headers`, `get`, `post`) | **sobrecargado, candidato #1 a refactor** |
-| `database.c` | Adaptador HTTP ↔ microdb (`database_set`, `database_route`) | **no llama `db_close`** — bug conocido |
-| `json.c` | Constructor JSON simple (no parser completo) | límite fijo `JSON_MAX_FIELDS` |
+| `requests.c` | Parsing HTTP + routing + handlers (`read_incoming`, `write_response`, `write_headers`, `handle_get`, `handle_post`) | **sobrecargado, candidato #1 a refactor** |
+| `query.c` | Separa query string del path (`query_split`, `query_parse`) y llena `client.query` | claves/valores truncados a 256 bytes |
+| `database.c` | Adaptador HTTP ↔ microdb (`database_set`, `database_route`, `database_list`, `database_add_note`) | cierra `db_t` siempre; namespace fijo por selector |
+| `json.c` | Constructor JSON simple + `json_array` (no parser completo) | límite fijo `JSON_MAX_FIELDS` |
 | `str.c` | Utilidades string + arena `string_pool` | varias funciones no validan NULL |
 | `io.c` | I/O y formateo mínimo (`readline_stream`, `sendfile`, `writef`) | mezcla lectura bloqueante/no bloqueante |
 | `memory.c` | `sysmap_alloc`/`sysmap_free` sobre `mmap` | sin realloc general, sin tracking de leaks |
@@ -50,7 +51,6 @@ Detalle completo de cada módulo (funciones, riesgos, ejemplos): `docs/Component
 
 ## Bugs conocidos ya documentados (no los reintroduzcas, y prioriza corregirlos si tocas ese código)
 
-- `database.c`: abre `db_t` pero nunca llama `db_close` → fuga de fd/memoria y desincronización.
 - `requests.c` / `parse_headers`: no valida que exista `:` antes de calcular longitudes de header.
 - Protección de path traversal solo compara `file == ".."`, no cubre `a/../b`.
 - `readline_stream`: manejo confuso de `EAGAIN` con `||` mal planteado.
@@ -58,9 +58,10 @@ Detalle completo de cada módulo (funciones, riesgos, ejemplos): `docs/Component
 - `post()` extrae `"key"` con búsqueda manual de substring, no con parser JSON real.
 - `string_n_copy` no garantiza `\0` si el origen llena el buffer completo.
 - Posible doble cierre de fd entre `client_destroy` y `epoll_loop.c` en caminos de error.
-- `Makefile clean` usa `rm` sin `-f`.
 
-Lista completa y priorizada: `docs/Architecture.md` (sección "Fallos Internos Relevantes" y "Mejoras Prioritarias").
+Corregidos (no reintroducir): `database.c` ya cierra `db_t` siempre y filtra por namespace; `Makefile clean` fixed; `db_selector_t.skip_blob` en `microdb` evita cargar blobs completos al listar/contar; **crítico** — `src/io.c` define `open`/`close`/`read`/`write` con nombre igual a libc y visibilidad global, lo que interponía sobre las llamadas equivalentes dentro de `libmicrodb.so` (rompía `db_open` en cualquier base de datos nueva) — corregido con `-fvisibility=hidden` en el `Makefile`, **no lo quites**; query string ya soportado (`query.c`, `cl->query`), ya no rompe el ruteo.
+
+Lista completa y priorizada: `docs/Architecture.md` (sección "Fallos Internos Relevantes", "Riesgo Crítico: Interposición de Símbolos" y "Mejoras Prioritarias").
 
 ## Reglas de memoria/ownership (relevantes para cualquier cambio en `requests.c`, `database.c`, `str.c`)
 
@@ -76,7 +77,10 @@ Detalle: `docs/Memory.md`.
 - Puerto `5050`, siempre `Connection: close`, raíz estática en `templates/`.
 - `GET /` → `templates/index.html`; `GET /<archivo>` sirve estático vía `sendfile` con `Content-Length`; `.mp4` usa `Transfer-Encoding: chunked` en fragmentos de 256 bytes.
 - `GET /database/<id>` y `POST /database` (JSON mínimo, requiere campo `"key"`) hablan con `microdb`, namespace `database`.
-- No hay: HTTP/1.1 completo, keep-alive real, routing formal, multipart, query string, validación JSON completa, `405`, `411`, `413`.
+- `GET /database/namespace/<nombre>` lista todos los registros de un namespace (`200` con `items:[]` si está vacío, nunca `404`).
+- `POST /database/notes` (body raw markdown) y `GET /database/notes` (lista namespace `notes`) — feature de notas ya implementada.
+- Query string soportado (`?a=1&b=2`) sin romper el ruteo: se parsea antes de despachar y queda en `cl->query`; ningún handler lo consume todavía.
+- No hay: HTTP/1.1 completo, keep-alive real, routing formal, multipart, validación JSON completa, `405`, `411`, `413`.
 
 Contrato completo con ejemplos de request/response: `docs/HTTP.md`. Integración con microdb (API usada, formato de registros, plan de migración desde sqlite del proyecto `old`): `docs/MicroDB-Integration.md`.
 
@@ -98,9 +102,9 @@ Hay un script de smoke test en `scripts/http_smoke.sh` y colecciones de `/http_h
 
 ## Roadmap (para saber si un cambio pedido encaja en una fase ya planeada)
 
-1. **Fase 1** — corregir fallos internos (`db_close`, `parse_headers`, path traversal, `write_headers`, doble cierre fd, `string_n_copy`).
-2. **Fase 2** — separar `requests.c` en parser / router / handlers (`handlers.c`, `files.c` propios).
-3. **Fase 3** — HTTP/1.1 básico correcto (`405`, `411`, `413`, validación de versión/Content-Type).
+1. **Fase 1** — corregir fallos internos (`db_close` ✅, interposición de símbolos ✅, `skip_blob` ✅, `parse_headers`, path traversal, `write_headers`, doble cierre fd, `string_n_copy`).
+2. **Fase 2** — separar `requests.c` en parser / router / handlers (`handlers.c`, `files.c` propios — siguen vacíos/stub).
+3. **Fase 3** — HTTP/1.1 básico correcto (query string ✅, `405`, `411`, `413`, validación de versión/Content-Type).
 4. **Fase 4** — `microdb` como store principal (namespaces explícitos, formato de registros `files`/`notes`/`media`).
 5. **Fase 5** — migrar funciones del proyecto `old` (`/music`, `/files/<id>`, `/notes`, multipart) sin portar su arquitectura (nada de sqlite, CGI por env vars, thread pool C++).
 6. **Fase 6** — pruebas repetibles (scripts curl, colecciones http_handler, casos JSON escapado).
@@ -120,7 +124,8 @@ Detalle completo: `docs/Roadmap.md`.
 
 ## Estado del repo (para no confundir con docs desactualizados)
 
-- Rama actual: `develop` (rama principal para PRs: `main`).
-- `http_handler` en la raíz es un **symlink** a `~/git/lua_projects/http_handler/` (herramienta Lua/Neovim para pruebas HTTP visuales) — existe aunque `docs/Testing.md` diga lo contrario.
-- `scripts/http_smoke.sh` y `.workspace/` (config Neovim/debug/colecciones REST) ya existen en el repo.
-- Hay cambios sin commitear en `src/database.c`, `src/requests.c`, `src/server.c`, `Makefile`, `.gitignore` — revisa `git diff` antes de asumir el estado descrito en `docs/`.
+- Rama principal para PRs: `main`. La rama de trabajo activa cambia (revisa `git branch --show-current`, no asumas `develop`).
+- `http_handler` en la raíz es un **symlink** a `~/git/lua_projects/http_handler/` (herramienta Lua/Neovim para pruebas HTTP visuales, solo lectura — no editar su código) — existe aunque `docs/Testing.md` diga lo contrario.
+- `scripts/http_smoke.sh` y `.workspace/` (config Neovim/debug/colecciones REST) ya existen en el repo. `scripts/http_smoke.sh` siempre borra `data.wal`/`base.db`/`blobs` antes de arrancar el servidor — no lo quites, es la única red que detecta bugs de "primer arranque" (ver interposición de símbolos arriba).
+- `microdb/` es un directorio normal versionado dentro de este mismo repo (ya no un submódulo/gitlink roto). No asumas que necesita `git submodule`.
+- Antes de dar por buena una prueba manual con `curl`, exporta `LD_LIBRARY_PATH="$PWD/bin"` (o usa el smoke script, que ya lo hace) — si no, `./bin/server` falla con `error while loading shared libraries: libmicrodb.so`.

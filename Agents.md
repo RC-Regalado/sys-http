@@ -30,6 +30,7 @@ hashmap.c         Hash map interno
 io.c              Entrada/salida
 json.c            Parsing mínimo JSON
 memory.c          Memoria/allocators
+query.c           Parsing de query string
 requests.c        Parsing y representación HTTP
 server.c          Inicialización del servidor
 str.c             Utilidades de string
