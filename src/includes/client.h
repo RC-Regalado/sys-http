@@ -18,6 +18,7 @@ typedef struct {
 
   string_pool pool;
   hash_map headers;
+  hash_map query;
 
   time_t last_active;
   void *usr_data;

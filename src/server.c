@@ -23,8 +23,7 @@ unsigned short htons(unsigned short x) {
 }
 
 void server() {
-  struct sockaddr_in addr = {0}; // inicializa todo a 0
-  //
+  struct sockaddr_in addr;
   int port = 5050;
   int enable = 1;
 
@@ -33,6 +32,8 @@ void server() {
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
   addr.sin_addr = 0; // INADDR_ANY
+  for (int i = 0; i < 8; ++i)
+    addr.zero[i] = 0;
 
   int sockfd = sys_socket(AF_INET, SOCK_STREAM, 0);
 
