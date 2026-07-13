@@ -3,6 +3,7 @@
 #include "hashmap.h"
 #include "io.h"
 #include "json.h"
+#include "query.h"
 #include "str.h"
 #include "syscalls.h"
 #include <time.h>
@@ -338,6 +339,10 @@ void write_response(client *cl) {
 
   method[line.method_len] = '\0';
   file[line.path_len] = '\0';
+
+  char *query = query_split(file);
+  if (query)
+    query_parse(&cl->query, &cl->pool, query);
 
   route_request(cl, method, file);
 

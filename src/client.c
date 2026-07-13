@@ -26,6 +26,7 @@ client *client_create(int fd) {
 
   string_pool_init(&c->pool, CLIENT_BUF_SIZE);
   hashmap_init(&c->headers);
+  hashmap_init(&c->query);
 
   return c;
 }
@@ -57,5 +58,6 @@ void client_reset(client *c) {
   c->fd = -1;
 
   hashmap_reset(&c->headers);
+  hashmap_reset(&c->query);
   string_pool_reset(&c->pool);
 }
