@@ -136,4 +136,11 @@ assert_body_has "GET /database/notes has markdown" '# Smoke note'
 assert_status "GET /database/namespace/notes" 200 GET /database/namespace/notes
 assert_body_has "GET /database/namespace/notes response" '"namespace":"notes"'
 
+assert_status "GET /index.html with query string" 200 GET "/index.html?x=1"
+assert_status "GET /database/smoke with query string" 200 GET "/database/smoke?debug=1&trace"
+assert_body_has "GET /database/smoke with query string response" '"found":true'
+assert_status "GET /database/notes with query string" 200 GET "/database/notes?limit=1"
+assert_body_has "GET /database/notes with query string response" '"namespace":"notes"'
+assert_status "GET missing file with query string" 404 GET "/no-existe?x=1"
+
 printf 'http smoke: ok\n'
