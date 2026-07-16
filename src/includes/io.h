@@ -26,6 +26,7 @@
 
 #define EAGAIN 11
 #define EWOULDBLOCK EAGAIN
+#define READ_AGAIN -3
 
 typedef struct {
   int fd;                     // File descriptor (socket o archivo)

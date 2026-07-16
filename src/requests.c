@@ -1,48 +1,20 @@
 #include "client.h"
-#include "database.h"
+#include "handlers.h"
 #include "hashmap.h"
 #include "io.h"
 #include "json.h"
 #include "query.h"
 #include "str.h"
-#include "syscalls.h"
-#include <time.h>
 
 #include "requests.h"
-
-static void handle_get(client *cl);
-static void handle_post(int client, hash_map *headers, const char *path);
 
 typedef struct {
   int method_len;
   int path_len;
+  int version_len;
 } request_line;
 
-static int starts_with(const char *text, const char *prefix) {
-  int i = 0;
-  while (prefix[i] != '\0') {
-    if (text[i] != prefix[i])
-      return 0;
-    i++;
-  }
-  return 1;
-}
-
-static int has_parent_segment(const char *path) {
-  for (int i = 0; path[i] != '\0'; i++) {
-    if (path[i] != '.')
-      continue;
-    if (path[i + 1] != '.')
-      continue;
-
-    char before = i == 0 ? '/' : path[i - 1];
-    char after = path[i + 2];
-    if ((before == '/' || before == '\\') &&
-        (after == '\0' || after == '/' || after == '\\'))
-      return 1;
-  }
-  return 0;
-}
+#define HTTP_MAX_BODY 8192
 
 static long parse_decimal(const char *s) {
   if (!s)
@@ -66,6 +38,30 @@ static int read_body(client *cl, line_reader *reader) {
   if (body_len <= 0)
     return 0;
 
+  long buffered = reader->write_pos - reader->read_pos;
+  if (buffered < 0)
+    buffered = 0;
+  if (buffered > body_len)
+    buffered = body_len;
+
+  if (body_len > HTTP_MAX_BODY) {
+    char discard[256];
+    long remaining = body_len - buffered;
+    while (remaining > 0) {
+      long chunk =
+          remaining > (long)sizeof(discard) ? (long)sizeof(discard) : remaining;
+      long n = read(cl->fd, discard, chunk);
+      if (n <= 0)
+        break;
+      remaining -= n;
+    }
+    write_headers(cl->fd, PAYLOAD_TOO_LARGE);
+    cl->want_read = 0;
+    cl->want_write = 0;
+    cl->want_close = 1;
+    return 1;
+  }
+
   if (cl->pool.offset + body_len + 1 >= cl->pool.capacity) {
     long need = cl->pool.offset + body_len + 1;
     if (string_pool_relloc(&cl->pool, need * 2) < 0)
@@ -73,11 +69,6 @@ static int read_body(client *cl, line_reader *reader) {
   }
 
   char *body = &cl->pool.base[cl->pool.offset];
-  long buffered = reader->write_pos - reader->read_pos;
-  if (buffered < 0)
-    buffered = 0;
-  if (buffered > body_len)
-    buffered = body_len;
 
   for (long i = 0; i < buffered; ++i)
     body[i] = reader->buffer[reader->read_pos + i];
@@ -100,49 +91,6 @@ static int read_body(client *cl, line_reader *reader) {
   return 0;
 }
 
-static const char *skip_ws(const char *p) {
-  while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
-    p++;
-  return p;
-}
-
-static int extract_json_key(const char *body, char *out, int out_size) {
-  if (!body || !out || out_size < 2)
-    return -1;
-
-  const char *p = body;
-  while (*p) {
-    if (p[0] == '"' && p[1] == 'k' && p[2] == 'e' && p[3] == 'y' &&
-        p[4] == '"') {
-      p += 5;
-      p = skip_ws(p);
-      if (*p != ':')
-        return -1;
-      p++;
-      p = skip_ws(p);
-      if (*p != '"')
-        return -1;
-      p++;
-
-      int n = 0;
-      while (*p && *p != '"') {
-        if (*p == '\\' && *(p + 1)) {
-          p++;
-        }
-        if (n >= out_size - 1)
-          return -1;
-        out[n++] = *p++;
-      }
-      if (*p != '"')
-        return -1;
-      out[n] = '\0';
-      return 0;
-    }
-    p++;
-  }
-  return -1;
-}
-
 static void write_status_line(int client, enum request_status status) {
   switch (status) {
   case OK:
@@ -156,6 +104,18 @@ static void write_status_line(int client, enum request_status status) {
     break;
   case NOT_FOUND:
     writef(client, "HTTP/1.1 404 Not Found\r\n");
+    break;
+  case METHOD_NOT_ALLOWED:
+    writef(client, "HTTP/1.1 405 Method Not Allowed\r\n");
+    break;
+  case LENGTH_REQUIRED:
+    writef(client, "HTTP/1.1 411 Length Required\r\n");
+    break;
+  case PAYLOAD_TOO_LARGE:
+    writef(client, "HTTP/1.1 413 Payload Too Large\r\n");
+    break;
+  case UNSUPPORTED_MEDIA_TYPE:
+    writef(client, "HTTP/1.1 415 Unsupported Media Type\r\n");
     break;
   default:
     writef(client, "HTTP/1.1 400 Bad Request\r\n");
@@ -173,8 +133,8 @@ static void write_json_body(int client, enum request_status status,
   write(client, body, body_len);
 }
 
-static int write_json_reply(int client, enum request_status status,
-                            const char *key, int ok) {
+int write_json_reply(int client, enum request_status status, const char *key,
+                     int ok) {
   string_pool storage;
   string_pool body;
   json_object obj;
@@ -208,18 +168,25 @@ static int write_json_reply(int client, enum request_status status,
 
 static void parse_header_line(hash_map *map, string_pool *pool, char *data) {
   int colon = index(data, ':');
+  if (colon < 0)
+    return; // linea sin ':' -- no es un header valido, se ignora
 
   int data_len = len(data);
-  int value_len = data_len - colon - 1;
+  int value_start = colon + 1;
+  if (value_start < data_len && data[value_start] == ' ')
+    value_start++; // "Key: value" -> salta el espacio tras ':'
+  int value_len = data_len - value_start;
 
+  // string_pool_nalloc ya copia acotado por size; no hace falta un
+  // segundo copiado manual (evita el bug de substr escribiendo sobre
+  // key/value == NULL cuando el pool se agota).
   char *key = string_pool_nalloc(pool, data, colon);
-  char *value = string_pool_nalloc(pool, data + colon + 1, value_len);
+  char *value = string_pool_nalloc(pool, data + value_start, value_len);
 
-  if ((void *)key < NULL)
-    logf("Error en memoria");
-
-  substr(data, key, 0, colon);
-  substr(data, value, colon + 2, value_len); //  +2 por el espacio
+  if (!key || !value) {
+    logf("Error en memoria: pool de headers agotado\n");
+    return;
+  }
 
   hashmap_put(map, key, value);
 }
@@ -231,8 +198,8 @@ static void apply_connection_header(client *cl) {
     return;
 
   if (strcmp(conn, "keep-alive") == 0) {
-    cl->state = STATE_KEEP_ALIVE;
-    cl->want_close = 0;
+    // cl->state = STATE_KEEP_ALIVE;
+    cl->want_close = 1;
   }
 
   if (strcmp(conn, "close") == 0) {
@@ -264,8 +231,17 @@ int read_incoming(client *cl) {
     pos = reader.read_pos;
   }
 
-  if (read_body(cl, &reader) < 0)
+  if (n == READ_AGAIN || (n == 0 && pos == 0)) {
+    cl->want_read = 1;
+    cl->want_write = 0;
+    return 0;
+  }
+
+  int body_status = read_body(cl, &reader);
+  if (body_status < 0)
     return -1;
+  if (body_status > 0)
+    return 0;
 
   apply_connection_header(cl);
 
@@ -286,65 +262,49 @@ static int parse_request_line(const char *request, request_line *line) {
 
   line->method_len = space_index1;
   line->path_len = space_index2;
+  line->version_len = len(request + space_index1 + space_index2 + 2);
   return 0;
 }
 
-static void set_route_path(client *cl, const char *file) {
-  if (strcmp(file, "/") == 0)
-    string_n_copy("/index.html", cl->path, CLIENT_MAX_PATH);
-  else
-    string_n_copy(file[0] == '/' ? file + 1 : file, cl->path, CLIENT_MAX_PATH);
-}
-
-static void route_request(client *cl, const char *method, const char *file) {
-  int client = cl->fd;
-
-  logf("request type(%s) to %s\n", method, file);
-
-  if (has_parent_segment(file)) {
-    write_headers(client, FORBIDDEN);
-    cl->want_close = 1;
-    return;
-  }
-
-  set_route_path(cl, file);
-
-  if (strcmp(method, "GET") == 0) {
-    handle_get(cl);
-  } else if (strcmp(method, "POST") == 0) {
-    handle_post(client, &cl->headers, cl->path);
-    cl->want_close = 1;
-  } else {
-    write_headers(client, UNKNOWN);
-    cl->want_close = 1;
-  }
+static int valid_http_version(const char *version) {
+  return strcmp(version, "HTTP/1.1") == 0 || strcmp(version, "HTTP/1.0") == 0;
 }
 
 void write_response(client *cl) {
-  int client = cl->fd;
+  int client_fd = cl->fd;
   const char *request = hashmap_get(&cl->headers, "REQUEST");
   request_line line;
 
   if (request == 0 || parse_request_line(request, &line) < 0) {
-    write_headers(client, request ? UNKNOWN : INTERNAL_ERROR);
+    write_headers(client_fd, request ? UNKNOWN : INTERNAL_ERROR);
     cl->want_close = 1;
     return;
   }
 
   char method[line.method_len + 1];
   char file[line.path_len + 1];
+  char version[line.version_len + 1];
 
   substr(request, method, 0, line.method_len);
   substr(request, file, line.method_len + 1, line.path_len);
+  substr(request, version, line.method_len + line.path_len + 2,
+         line.version_len);
 
   method[line.method_len] = '\0';
   file[line.path_len] = '\0';
+  version[line.version_len] = '\0';
+
+  if (!valid_http_version(version)) {
+    write_headers(client_fd, UNKNOWN);
+    cl->want_close = 1;
+    return;
+  }
 
   char *query = query_split(file);
   if (query)
     query_parse(&cl->query, &cl->pool, query);
 
-  route_request(cl, method, file);
+  dispatch_request(cl, method, file);
 
   apply_connection_header(cl);
   cl->want_write = 0;
@@ -354,256 +314,4 @@ void write_headers(int client, enum request_status status) {
   write_status_line(client, status);
   if (status != OK)
     write(client, "\r\n", 2);
-}
-
-void chunk(int *client, int *fd, hash_map *header, const char *path,
-           const char *ext) {
-  //  string_pool response;
-
-  write_headers(*client, OK);
-  char *headers = "Content-Type: video/mp4\r\n"
-                  "Transfer-Encoding: chunked\r\n"
-                  "Connection: close\r\n\r\n";
-  write(*client, headers, len(headers));
-  // Lectura de video por fragmentos de 256 bytes
-  int bytes_read = 0;
-  char buffer[256];
-  int err = 0;
-  unsigned int err_len = sizeof(err);
-
-  long dead = 0;
-
-  while (!dead && (bytes_read = read(*fd, buffer, 256)) > 0) {
-    if (sys_getsockopt(*client, SOL_SOCKET, SO_ERROR, &err, &err_len) || err) {
-      dead = 1;
-      break;
-    }
-    // Envía chunk: <tamaño>\r\n<data>\r\n
-    writef(*client, "%x\r\n", bytes_read); // Tamaño en hex
-    write(*client, buffer, bytes_read);    // Datos
-    write(*client, "\r\n", 2);             // Terminador de chunk
-  }
-  // Cierre de conexión (si existe)
-  if (!dead)
-    writef(*client, "0\r\n\r\n");
-}
-
-static void handle_get(client *cl) {
-  string_pool handler;
-  string_pool_init(&handler, 1024);
-
-  if (starts_with(cl->path, "database/namespace/")) {
-    const char *namespace_name = cl->path + 19;
-    if (*namespace_name == '\0') {
-      write_headers(cl->fd, NOT_FOUND);
-      string_pool_destroy(&handler);
-      cl->want_close = 1;
-      return;
-    }
-    database_list(cl, namespace_name);
-    string_pool_destroy(&handler);
-    cl->want_close = 1;
-    return;
-  }
-
-  if (strcmp(cl->path, "database/notes") == 0) {
-    database_list(cl, "notes");
-    string_pool_destroy(&handler);
-    cl->want_close = 1;
-    return;
-  }
-
-  if (starts_with(cl->path, "database/")) {
-    const char *id = cl->path + 9;
-    if (*id == '\0') {
-      write_headers(cl->fd, NOT_FOUND);
-      string_pool_destroy(&handler);
-      cl->want_close = 1;
-      return;
-    }
-    database_route(cl, id);
-    string_pool_destroy(&handler);
-    cl->want_close = 1;
-    return;
-  }
-
-  const char templates_dir[] = "templates/";
-
-  string_pool_mark(&handler);
-
-  char *route = string_pool_alloc(&handler, templates_dir);
-  string_pool_append(&handler, cl->path, 1);
-
-  int client = cl->fd;
-  int fd = open(route, O_RDONLY);
-
-  struct stat sb;
-
-  if (fd < 0) {
-    write_headers(client, NOT_FOUND);
-    string_pool_destroy(&handler);
-    cl->want_close = 1;
-    return;
-  }
-
-  if (stat_file(fd, &sb) == -1) {
-    logf("Ha ocurrido un error al realizar stat en el archivo: %s\n", route);
-    write_headers(client, INTERNAL_ERROR);
-    string_pool_destroy(&handler);
-    cl->want_close = 1;
-    close(fd);
-    return;
-  }
-
-  int dot = last_index_of(cl->path, '.');
-  char *filetype = "application/octet-stream";
-
-  if (dot > -1) {
-    unsigned int l = len(cl->path);
-    int top = l - dot - 1;
-
-    string_pool_reset_to_mark(&handler);
-
-    substr(cl->path, route, dot + 1, top);
-    route[top] = '\0';
-
-    if (strcmp(route, "html") == 0) {
-      filetype = "text/html";
-    } else if (strcmp(route, "css") == 0) {
-      filetype = "text/css";
-    } else if (strcmp(route, "js") == 0) {
-      filetype = "application/javascript";
-    } else if (strcmp(route, "png") == 0) {
-      filetype = "image/png";
-    } else if (strcmp(route, "jpg") == 0 || strcmp(route, "jpeg") == 0) {
-      filetype = "image/jpeg";
-    } else if (strcmp(route, "ico") == 0) {
-      filetype = "image/vnd.microsoft.icon";
-    } else if (strcmp(route, "mp4") == 0) {
-      chunk(&client, &fd, &cl->headers, cl->path, route);
-      string_pool_destroy(&handler);
-      close(fd);
-      cl->want_close = 1;
-      return;
-    }
-  }
-
-  write_headers(client, OK);
-
-  string_pool_reset(&handler);
-
-  string_pool_format(&handler, "Content-Type: %s\r\n", filetype);
-  string_pool_format(&handler, "Content-Length: %ld\r\n", sb.st_size);
-
-  /*
-  if (cl->state == STATE_KEEP_ALIVE)
-    string_pool_append(&handler, "Connection: keep-alive\r\n\r\n", 0);
-  else
-                       */
-  // Aun no entiendo como funciona XD
-  string_pool_append(&handler, "Connection: close\r\n\r\n", 0);
-  //  string_pool_append(&handler, "\r\n", 0);
-
-  write(client, handler.base, handler.offset - 1);
-
-  long off = 0;
-  long remaining = sb.st_size;
-  while (remaining > 0) {
-    long n = sendfile(client, fd, &off, remaining);
-    if (n > 0) {
-      remaining -= n;
-      continue;
-    }
-    if (n == 0)
-      break; // nada más que enviar
-    break;
-  }
-
-  string_pool_destroy(&handler);
-  close(fd);
-  cl->want_close = 1;
-}
-
-static void handle_post(int client, hash_map *headers, const char *path) {
-  if (strcmp(path, "database/notes") == 0) {
-    const char *body = hashmap_get(headers, "BODY");
-    string_pool key;
-
-    if (!body || *body == '\0' || string_pool_init(&key, 64) < 0) {
-      write_json_reply(client, UNKNOWN, 0, 0);
-      return;
-    }
-
-    int saved = database_add_note(body, len(body), &key);
-    if (saved == 0)
-      write_json_reply(client, OK, key.base, 1);
-    else
-      write_json_reply(client, INTERNAL_ERROR, 0, 0);
-
-    string_pool_destroy(&key);
-    return;
-  }
-
-  if (strcmp(path, "database") == 0) {
-    const char *body = hashmap_get(headers, "BODY");
-    char key[128];
-
-    if (!body || extract_json_key(body, key, sizeof(key)) < 0) {
-      write_json_reply(client, UNKNOWN, 0, 0);
-      return;
-    }
-
-    int saved = database_set(key, body, len(body));
-    if (saved == 0)
-      write_json_reply(client, OK, key, 1);
-    else
-      write_json_reply(client, INTERNAL_ERROR, key, 0);
-    return;
-  }
-
-  string_pool json_storage;
-  string_pool response;
-  json_object obj;
-
-  if (string_pool_init(&json_storage, 512) < 0 ||
-      string_pool_init(&response, 1024) < 0) {
-    write_headers(client, INTERNAL_ERROR);
-    return;
-  }
-
-  if (json_object_init(&obj, &json_storage) < 0) {
-    write_headers(client, INTERNAL_ERROR);
-    string_pool_destroy(&json_storage);
-    string_pool_destroy(&response);
-    return;
-  }
-
-  const char *accept = hashmap_get(headers, "Accept");
-  json_add_string(&obj, "status", "ok");
-  json_add_number(&obj, "hex", 10);
-  json_add_string(&obj, "path", path ? path : "/");
-  if (accept) {
-    json_add_string(&obj, "accept", accept);
-  } else {
-    json_add_null(&obj, "accept");
-  }
-
-  if (json_serialize(&obj, &response) < 0) {
-    write_headers(client, INTERNAL_ERROR);
-    string_pool_destroy(&json_storage);
-    string_pool_destroy(&response);
-    return;
-  }
-
-  int size = len(response.base);
-
-  write_headers(client, OK);
-  writef(client, "Content-Type: application/json\r\n");
-  writef(client, "Content-Length: %ld\r\n", size);
-  writef(client, "Connection: close\r\n");
-  write(client, "\r\n", 2);
-  write(client, response.base, size);
-
-  string_pool_destroy(&json_storage);
-  string_pool_destroy(&response);
 }

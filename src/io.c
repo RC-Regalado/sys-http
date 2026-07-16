@@ -145,9 +145,13 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
       return -2; // buffer lleno sin encontrar \n
     }
 
-    // Leer más datos desde el fd
+    // Leer más datos desde el fd (acotado al espacio real que queda en
+    // el buffer; chunk_len solo, sin este límite, permite que el kernel
+    // escriba mas alla del final de reader->buffer cuando write_pos > 0)
+    unsigned short space_left = LINE_BUF_SIZE - reader->write_pos;
+    unsigned short to_read = space_left < chunk_len ? space_left : chunk_len;
     long bytes_read =
-        read(reader->fd, &reader->buffer[reader->write_pos], chunk_len);
+        read(reader->fd, &reader->buffer[reader->write_pos], to_read);
 
     if (bytes_read == 0) {
       return 0; // EOF limpio
@@ -155,7 +159,7 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
 
       long err = -bytes_read;
       if (err == EAGAIN || err == EWOULDBLOCK)
-        continue;
+        return READ_AGAIN;
 
       return -1; // error de lectura
     }
