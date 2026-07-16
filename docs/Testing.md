@@ -110,6 +110,13 @@ Payload con comillas escapadas:
 curl -v -X POST http://localhost:5050/database -d '{"key":"escape","value":"a\"b"}'
 ```
 
+## Prueba con navegador real
+
+`curl` no reproduce todo: cabeceras grandes/fragmentadas y el timing real de un navegador expusieron bugs que `curl` no disparaba (ver `docs/Architecture.md`, seccion "Riesgo Critico: SIGSEGV en `read_incoming`..."). Al probar en Firefox/Chrome real:
+
+* Si un build con un bug conocido (contenido truncado, `Content-Length` incorrecto, etc.) ya sirvio una URL en un perfil de navegador, ese perfil puede quedar con **una entrada de cache de disco corrupta o parcial** para esa URL. Un fix posterior en el servidor puede parecer que no funciona (ej. `NS_ERROR_NET_RESET` en Firefox) cuando en realidad el servidor ya esta bien y el navegador esta revalidando/completando una entrada de cache rota. Antes de reabrir investigacion sobre un bug "que persiste" tras un fix: **probar en una ventana privada o un perfil nuevo**; si ahi funciona, el problema era la cache del perfil usado para las pruebas anteriores, no el servidor (ver postmortem completo en `docs/Architecture.md`).
+* `scripts/http_smoke.sh` ya cubre cabeceras fragmentadas tipo Firefox y descargas grandes con cliente lento, pero corre contra un perfil de cache limpio (`curl` no cachea) — no sustituye una prueba manual en navegador real cuando el cambio toca `files.c`/servir estaticos.
+
 ## Resultado Esperado
 
 * `/` retorna `200 OK`.

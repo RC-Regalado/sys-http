@@ -211,33 +211,32 @@ static void apply_connection_header(client *cl) {
 }
 
 int read_incoming(client *cl) {
-  line_reader reader;
-  reader.fd = cl->fd;
-  reader.read_pos = 0;
-  reader.write_pos = 0;
-  int pos = 0;
+  line_reader *reader = &cl->reader;
+  reader->fd = cl->fd;
+  int pos = reader->read_pos;
   char *line;
 
   int n = 0;
-  while ((n = readline_stream(&reader, 1024)) > 0) {
-    line = &reader.buffer[pos];
-    if (pos == 0) {
+  while ((n = readline_stream(reader, 1024)) > 0) {
+    line = &reader->buffer[pos];
+    if (!cl->request_line_seen) {
       char *key = string_pool_alloc(&cl->pool, "REQUEST\0");
       char *value = string_pool_alloc(&cl->pool, line);
       hashmap_put(&cl->headers, key, value);
+      cl->request_line_seen = 1;
     } else {
       parse_header_line(&cl->headers, &cl->pool, line);
     }
-    pos = reader.read_pos;
+    pos = reader->read_pos;
   }
 
-  if (n == READ_AGAIN || (n == 0 && pos == 0)) {
+  if (n == READ_AGAIN || (n == 0 && !cl->request_line_seen)) {
     cl->want_read = 1;
     cl->want_write = 0;
     return 0;
   }
 
-  int body_status = read_body(cl, &reader);
+  int body_status = read_body(cl, reader);
   if (body_status < 0)
     return -1;
   if (body_status > 0)
@@ -305,6 +304,10 @@ void write_response(client *cl) {
     query_parse(&cl->query, &cl->pool, query);
 
   dispatch_request(cl, method, file);
+
+  if (cl->response_state == RESPONSE_HEADERS ||
+      cl->response_state == RESPONSE_FILE)
+    return;
 
   apply_connection_header(cl);
   cl->want_write = 0;

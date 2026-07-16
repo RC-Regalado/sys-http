@@ -36,10 +36,8 @@ static char *content_type_for(const char *path, string_pool *scratch) {
 
   if (strcmp(ext, "html") == 0)
     return "text/html";
-  if (strcmp(ext, "css") == 0) {
-    logf("css\n");
+  if (strcmp(ext, "css") == 0)
     return "text/css";
-  }
   if (strcmp(ext, "js") == 0)
     return "application/javascript";
   if (strcmp(ext, "png") == 0)
@@ -84,6 +82,74 @@ static void stream_chunked_mp4(client *cl, int fd) {
     writef(client_fd, "0\r\n\r\n");
 }
 
+void send_static_pending(client *cl) {
+  while (cl->response_headers_offset < cl->response_headers_length) {
+    long left = cl->response_headers_length - cl->response_headers_offset;
+    long n = write(cl->fd, cl->response_headers + cl->response_headers_offset,
+                   left);
+
+    if (n > 0) {
+      cl->response_headers_offset += n;
+      continue;
+    }
+
+    if (n == 0 || n == -EAGAIN || n == -EWOULDBLOCK) {
+      cl->response_state = RESPONSE_HEADERS;
+      cl->want_read = 0;
+      cl->want_write = 1;
+      cl->want_close = 0;
+      return;
+    }
+
+    if (n == -EINTR)
+      continue;
+
+    cl->want_write = 0;
+    cl->want_close = 1;
+    return;
+  }
+
+  while (cl->file_remaining > 0) {
+    long n = sendfile(cl->fd, cl->file_fd, &cl->file_offset,
+                      cl->file_remaining);
+
+    if (n > 0) {
+      cl->file_remaining -= n;
+      continue;
+    }
+
+    if (n == 0 || n == -EAGAIN || n == -EWOULDBLOCK) {
+      cl->response_state = RESPONSE_FILE;
+      cl->want_read = 0;
+      cl->want_write = 1;
+      cl->want_close = 0;
+      return;
+    }
+
+    if (n == -EINTR)
+      continue;
+
+    // Error real de sendfile (ni EAGAIN/EWOULDBLOCK ni EINTR): la respuesta
+    // ya prometio Content-Length completo en los headers, asi que la unica
+    // opcion es cortar la conexion -- pero se deja registrado como error,
+    // no como transferencia completa (antes caia al mismo cierre "exitoso"
+    // de abajo con file_remaining > 0, dejando al cliente con body truncado
+    // sin ninguna traza de que algo fallo).
+    logf("Error en sendfile (fd=%d, restante=%ld): %ld\n", cl->fd,
+         cl->file_remaining, n);
+    break;
+  }
+
+  if (cl->file_fd >= 0) {
+    close(cl->file_fd);
+    cl->file_fd = -1;
+  }
+  cl->file_remaining = 0;
+  cl->response_state = RESPONSE_DONE;
+  cl->want_write = 0;
+  cl->want_close = 1;
+}
+
 void serve_static_file(client *cl) {
   string_pool handler;
   string_pool_init(&handler, 1024);
@@ -121,31 +187,29 @@ void serve_static_file(client *cl) {
     return;
   }
 
-  write_headers(client_fd, OK);
-
   string_pool_reset(&handler);
+  string_pool_append(&handler, "HTTP/1.1 200 OK\r\n", 0);
   string_pool_format(&handler, "Content-Type: %s\r\n", filetype);
   string_pool_format(&handler, "Content-Length: %ld\r\n", sb.st_size);
   string_pool_append(&handler, "Connection: close\r\n\r\n", 0);
-  write(client_fd, handler.base, handler.offset - 1);
 
-  cl->response_state = RESPONSE_HEADERS;
-
-  long off = 0;
-  long remaining = sb.st_size;
-
-  while (remaining > 0) {
-    long n = sendfile(client_fd, fd, &off, remaining);
-    if (n > 0) {
-      remaining -= n;
-      continue;
-    }
-    if (n == 0)
-      break;
-    break;
+  cl->response_headers =
+      string_pool_nalloc(&cl->pool, handler.base, handler.offset - 1);
+  if (!cl->response_headers) {
+    write_headers(client_fd, INTERNAL_ERROR);
+    string_pool_destroy(&handler);
+    close(fd);
+    cl->want_close = 1;
+    return;
   }
 
+  cl->response_state = RESPONSE_HEADERS;
+  cl->response_headers_length = handler.offset - 1;
+  cl->response_headers_offset = 0;
+  cl->file_fd = fd;
+  cl->file_offset = 0;
+  cl->file_remaining = sb.st_size;
+
   string_pool_destroy(&handler);
-  close(fd);
-  cl->want_close = 1;
+  send_static_pending(cl);
 }

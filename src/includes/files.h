@@ -15,5 +15,6 @@ struct pollfd {
 
 void fd_set_nonblock(int fd);
 void serve_static_file(client *cl);
+void send_static_pending(client *cl);
 
 #endif // !FILES_H_

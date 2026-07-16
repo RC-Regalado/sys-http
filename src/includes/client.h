@@ -2,6 +2,7 @@
 #define CLIENT_H_
 
 #include "hashmap.h"
+#include "io.h"
 #include "str.h"
 #include <time.h>
 
@@ -13,6 +14,7 @@
 
 #define STATE_KEEP_ALIVE 1
 
+#define EINTR 4 /* Interrupted system call */
 typedef enum {
   RESPONSE_IDLE,
   RESPONSE_HEADERS,
@@ -29,6 +31,8 @@ typedef struct {
   string_pool pool;
   hash_map headers;
   hash_map query;
+  line_reader reader;
+  int request_line_seen;
 
   time_t last_active;
   void *usr_data;

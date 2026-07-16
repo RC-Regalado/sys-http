@@ -172,12 +172,15 @@ int readline_stream(line_reader *reader, unsigned short chunk_len) {
 
       if (bytes_read > 0) {
         reader->write_pos += bytes_read;
+        continue;
       }
 
-      /* n < 0 */
-      long err = -bytes_read; /* si capturas errno directamente */
+      if (bytes_read == 0)
+        return 0;
 
-      if (err != EAGAIN || err != EWOULDBLOCK) {
+      long err = -bytes_read;
+
+      if (err != EAGAIN && err != EWOULDBLOCK) {
         return -1; /* error real */
       }
     }

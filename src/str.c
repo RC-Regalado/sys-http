@@ -77,10 +77,13 @@ int last_index_of(const char *s1, char c) {
 
 int string_n_copy(const char *src, char *buff, int n) {
   int pos = 0;
-  while (pos < n && src[pos] != 0) {
+  while (pos < n - 1 && src[pos] != 0) {
     buff[pos] = src[pos];
     pos++;
   }
+
+  if (n > 0)
+    buff[pos] = '\0';
 
   return pos;
 }
