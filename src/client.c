@@ -23,6 +23,17 @@ client *client_create(int fd) {
   c->want_write = 0;
   c->want_close = 0;
   c->state = 0;
+  c->reader.fd = fd;
+  c->reader.read_pos = 0;
+  c->reader.write_pos = 0;
+  c->request_line_seen = 0;
+  c->response_state = RESPONSE_IDLE;
+  c->response_headers = 0;
+  c->response_headers_length = 0;
+  c->response_headers_offset = 0;
+  c->file_fd = -1;
+  c->file_offset = 0;
+  c->file_remaining = 0;
 
   string_pool_init(&c->pool, CLIENT_BUF_SIZE);
   hashmap_init(&c->headers);
@@ -37,6 +48,8 @@ client *client_create(int fd) {
 void client_destroy(client *c) {
   if (!c)
     return;
+  if (c->file_fd >= 0)
+    close(c->file_fd);
   string_pool_destroy(&c->pool);
   close(c->fd);
   sysmap_free(c);
@@ -52,6 +65,19 @@ void client_reset(client *c) {
   c->want_write = 0;
   c->want_close = 0;
   c->state = 0;
+  c->reader.fd = c->fd;
+  c->reader.read_pos = 0;
+  c->reader.write_pos = 0;
+  c->request_line_seen = 0;
+  c->response_state = RESPONSE_IDLE;
+  c->response_headers = 0;
+  c->response_headers_length = 0;
+  c->response_headers_offset = 0;
+  if (c->file_fd >= 0)
+    close(c->file_fd);
+  c->file_fd = -1;
+  c->file_offset = 0;
+  c->file_remaining = 0;
   c->method[0] = 0;
   c->path[0] = 0;
 

@@ -81,7 +81,7 @@ Funciones principales:
 
 Riesgos:
 
-* `CLIENT_BUF_SIZE` limita headers y body pequenos
+* `CLIENT_BUF_SIZE` (8192) limita headers y body; una request cuyas cabeceras+body superen ese total agota `cl->pool` (`string_pool_nalloc` devuelve `NULL`, `parse_header_line` descarta esa linea con un log en vez de crashear, ver `docs/Architecture.md`)
 * el reset no se usa de forma completa para keep-alive real
 * `client_destroy` cierra el fd, por tanto otros modulos no deben cerrarlo otra vez
 * `client.query` (parametros de query string, ver `query.c`) duplica el costo fijo de un `hash_map` completo por cliente, ademas del de `headers`
@@ -223,6 +223,7 @@ Riesgos:
 * `format` no cubre todos los formatos C
 * `readline_stream` mezcla lectura bloqueante/no bloqueante
 * lectura de lineas largas falla con `-2`
+* el `read()` principal del loop ya esta acotado a `min(chunk_len, LINE_BUF_SIZE - write_pos)` (antes pedia `chunk_len` fijo sin mirar el espacio libre real de `reader->buffer`, causaba stack overflow con requests que llegaban en mas de un `read()` — ver `docs/Architecture.md`, "Riesgo Critico: SIGSEGV en `read_incoming`"); el segundo `read` de refuerzo (linea ~165) sigue con el manejo confuso de `EAGAIN` ya documentado, no lo tomes como ejemplo
 * `open`/`close`/`read`/`write` tienen visibilidad global y coinciden en nombre con libc: sin `-fvisibility=hidden` en el `Makefile` (ya presente), interponen sobre las llamadas equivalentes dentro de `libmicrodb.so` — ver `docs/Architecture.md` ("Riesgo Critico: Interposicion de Simbolos con microdb"). No renombrar estas funciones ni quitar la flag sin entender ese riesgo.
 
 ## memory.c

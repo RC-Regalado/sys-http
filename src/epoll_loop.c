@@ -5,6 +5,7 @@
 
 #include "epoll_loop.h"
 #include "client.h"
+#include "files.h"
 #include "io.h"
 #include "requests.h"
 #include "syscalls.h"
@@ -29,6 +30,14 @@ client *get_client(int fd) {
   return NULL;
 }
 
+static void forget_client(client *c) {
+  for (int i = 0; i < CLIENT_CAPACITY; ++i) {
+    if (clients[i] == c) {
+      clients[i] = 0x0;
+      return;
+    }
+  }
+}
 /**
  * @brief Obtiene un cliente libre para asociar a un nuevo socket
  */
@@ -36,10 +45,16 @@ client *new_client(int fd) {
   for (int i = 0; i < CLIENT_CAPACITY; ++i) {
     client *c = clients[i];
     if (c == 0x0 || c->fd < 0) {
-      if (c == 0x0)
+      if (c == 0x0) {
         c = client_create(fd);
+        clients[i] = c;
+      }
 
       c->fd = fd;
+      c->reader.fd = fd;
+      c->reader.read_pos = 0;
+      c->reader.write_pos = 0;
+      c->request_line_seen = 0;
       return c;
     }
   }
@@ -74,7 +89,7 @@ void event_loop(int sockfd) {
           continue;
         }
 
-        ev.events = EPOLLIN | EPOLLET;
+        ev.events = EPOLLIN;
         ev.data.fd = client_fd;
         sys_epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev);
         logf("Cliente %d aceptado\n", client_fd);
@@ -90,25 +105,31 @@ void event_loop(int sockfd) {
       if (c->want_read) {
         int status = read_incoming(c);
         if (status < 0) {
-          logf("Error leyendo de cliente %d\n", c->fd);
+          int dead_fd = c->fd;
+          logf("Error leyendo de cliente %d\n", dead_fd);
+          sys_epoll_ctl(epfd, EPOLL_CTL_DEL, dead_fd, 0);
+          forget_client(c);
           client_destroy(c);
-          sys_epoll_ctl(epfd, EPOLL_CTL_DEL, c->fd, 0);
-          close(c->fd);
           continue;
         }
       }
 
       if (c->want_write) {
-        write_response(c);
+        if (c->response_state == RESPONSE_HEADERS ||
+            c->response_state == RESPONSE_FILE)
+          send_static_pending(c);
+        else
+          write_response(c);
       }
 
       if (c->want_close) {
         //        write_response(c->fd, &c->headers);
         sys_epoll_ctl(epfd, EPOLL_CTL_DEL, c->fd, 0);
+        forget_client(c);
         client_destroy(c);
       } else {
-        c->want_read = 1;
-        ev.events = EPOLLIN | EPOLLET;
+        ev.events = c->want_write ? EPOLLOUT : EPOLLIN;
+        c->want_read = c->want_write ? 0 : 1;
         ev.data.fd = c->fd;
         sys_epoll_ctl(epfd, EPOLL_CTL_MOD, c->fd, &ev);
         logf("Cliente %d reciclado\n", c->fd);
